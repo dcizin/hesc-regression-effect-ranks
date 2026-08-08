@@ -986,7 +986,7 @@
   $('clearPins').addEventListener('click', () => {
     S.pinned.clear();
     applySearch();
-    drawOverlay();
+    drawAll();
   });
 
   $('pinMatches').addEventListener('click', () => {
@@ -997,7 +997,7 @@
     const allPinned = names.length > 0 && names.every(nm => S.pinned.has(nm));
     for (const nm of names) allPinned ? S.pinned.delete(nm) : S.pinned.add(nm);
     applySearch();                       // flip the pin/unpin label
-    drawOverlay();
+    drawAll();
   });
 
   // ---------- hover & pin ----------
@@ -1090,7 +1090,7 @@
     lassoActive = false;
     if (lassoPts.length > 2) { finishLasso(); suppressClick = true; }
     lassoPts = [];
-    drawOverlay();
+    drawAll();
   });
 
   main.addEventListener('mousemove', e => {
@@ -1118,7 +1118,7 @@
     if (i < 0) return;
     const nm = S.d.names[i];
     S.pinned.has(nm) ? S.pinned.delete(nm) : S.pinned.add(nm);
-    drawOverlay();
+    drawAll();
   });
 
   // ---------- toggles ----------
@@ -1317,6 +1317,9 @@
       octx.strokeStyle = C.hot; octx.lineWidth = 1.5;
       octx.beginPath(); octx.arc(x, y, 5.5, 0, Math.PI*2); octx.stroke();
     }
+    octx.restore();
+
+    // lasso loop drawn unclipped so it stays visible over the title/margins too
     if (lassoActive && lassoPts.length > 1) {
       octx.strokeStyle = C.hot; octx.lineWidth = 1.5;
       octx.setLineDash([5, 4]);
@@ -1328,7 +1331,6 @@
       octx.fill(); octx.stroke();
       octx.setLineDash([]);
     }
-    octx.restore();
     syncPinLabels(seen, cmap);
     $('clearPins').disabled = S.pinned.size === 0;
   }
@@ -1401,6 +1403,7 @@
     for (const el of [...pinsBox.children]) {
       if (!want.has(el.dataset.name)) el.remove();
     }
+    const vis = [];
     for (const s of seen) {
       let el = [...pinsBox.children].find(e => e.dataset.name === s.name);
       if (!el) {
@@ -1412,7 +1415,7 @@
       el.onclick = () => {
         if (s.search) S.pinned.add(s.name); else S.pinned.delete(s.name);
         applySearch();
-        drawOverlay();
+        drawAll();
       };
       el.onmouseenter = () => {
         const dd = S.d;
@@ -1431,12 +1434,48 @@
       const chipHtml = esc(s.name) + (s.act ? ' <span class="star">★</span>' : '');
       if (el.dataset.h !== chipHtml) { el.innerHTML = chipHtml; el.dataset.h = chipHtml; }
       el.style.color = (cmap && s.tgt && cmap.get(s.tgt)) || '';
-      const off = s.x > W - 130;                 // flip near right edge
-      el.style.transform = off ? 'translate(-100%, -21px)' : 'translate(9px, -21px)';
-      el.style.left = (off ? s.x - 9 : s.x) + 'px';
-      el.style.top = s.y + 'px';
-      el.style.display = (s.x < M.l - 8 || s.x > W - M.r + 8 || s.y < M.t - 8 || s.y > H - M.b + 8) ? 'none' : '';
+      el.style.transform = 'none';
+      const hidden = s.x < M.l - 8 || s.x > W - M.r + 8 || s.y < M.t - 8 || s.y > H - M.b + 8;
+      el.style.display = hidden ? 'none' : '';
+      if (!hidden) vis.push({ el, s, w: 0 });
     }
+
+    // waterfall de-overlap: clustered chips (lasso!) spread downward instead of stacking;
+    // displaced chips get a thin connector back to their point
+    for (const v of vis) v.w = v.el.offsetWidth || 60;
+    const CH = 22, GAP = 2;
+    for (const v of vis) {
+      v.flip = v.s.x > W - 130;
+      v.x = v.flip ? v.s.x - 9 - v.w : v.s.x + 9;
+      v.y = v.s.y - 21;
+    }
+    vis.sort((a, b) => a.y - b.y || a.x - b.x);
+    const placed = [];
+    for (const v of vis) {
+      let moved = true;
+      while (moved) {
+        moved = false;
+        for (const p of placed) {
+          if (v.x < p.x + p.w + GAP && p.x < v.x + v.w + GAP &&
+              v.y < p.y + CH + GAP && p.y < v.y + CH + GAP) {
+            v.y = p.y + CH + GAP;
+            moved = true;
+          }
+        }
+      }
+      placed.push(v);
+      v.el.style.left = v.x + 'px';
+      v.el.style.top = v.y + 'px';
+    }
+    octx.strokeStyle = 'rgba(34,53,43,0.35)';
+    octx.lineWidth = 0.8;
+    octx.beginPath();
+    for (const v of vis) {
+      if (Math.abs(v.y - (v.s.y - 21)) < 5) continue;
+      octx.moveTo(v.flip ? v.x + v.w + 2 : v.x - 2, v.y + 11);
+      octx.lineTo(v.s.x, v.s.y);
+    }
+    octx.stroke();
   }
 
 
@@ -1494,7 +1533,7 @@
     S.pinned.has(nm) ? S.pinned.delete(nm) : S.pinned.add(nm);
     tr.classList.toggle('pinned', S.pinned.has(nm));
     applySearch();
-    drawOverlay();
+    drawAll();
   });
 
   // ---------- help modal ----------
@@ -1504,7 +1543,12 @@
   helpModal.addEventListener('click', e => { if (e.target === helpModal) helpModal.hidden = true; });
   document.addEventListener('keydown', e => {
     if (e.key !== 'Escape') return;
-    if (!helpModal.hidden) helpModal.hidden = true;
+    if (lassoActive) {                 // cancel an in-progress lasso before release
+      lassoActive = false;
+      lassoPts = [];
+      suppressClick = true;
+      drawOverlay();
+    } else if (!helpModal.hidden) helpModal.hidden = true;
     else if (!rankModal.hidden) rankModal.hidden = true;
   });
 
