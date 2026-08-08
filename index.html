@@ -1077,7 +1077,9 @@
         octx.font = (hov ? '600' : '500') + ' 13.5px "Bricolage Grotesque", sans-serif';
         const tw = octx.measureText(name).width;
         const ex = nbStyle ? s.ax + s.dir * 3 : s.ax + s.dir * (tw + 3);
-        octx.strokeStyle = hov ? 'rgba(34,53,43,0.7)' : 'rgba(34,53,43,0.42)';
+        const lc = cmap.get(d.target[p.i]);   // leader shares the guide's colour
+        octx.strokeStyle = lc ? lc + (hov ? 'e6' : '8c')
+                              : (hov ? 'rgba(34,53,43,0.7)' : 'rgba(34,53,43,0.42)');
         octx.lineWidth = hov ? 1.5 : 0.9;
         octx.beginPath(); octx.moveTo(p.x, p.y); octx.lineTo(ex, ly); octx.stroke();
         octx.fillStyle = cmap.get(d.target[p.i]) || C.ink;
