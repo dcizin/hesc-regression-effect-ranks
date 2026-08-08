@@ -212,8 +212,10 @@
   #overlay { pointer-events: none; }
 
   #pins { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
+  #pins.nofx .pinlabel { transition: none; }
   .pinlabel {
     position: absolute; pointer-events: auto; cursor: pointer;
+    transition: left 0.28s ease, top 0.28s ease;
     font: 500 13.5px 'Bricolage Grotesque', sans-serif;
     color: var(--ink); background: var(--panel);
     border: 1px solid var(--ink); border-radius: 5px;
@@ -815,7 +817,8 @@
   const zoom = d3.zoom().scaleExtent([0.23, 60])
     .filter(e => (e.type === 'wheel' || (!S.lasso && !e.shiftKey)) &&
                  (!e.ctrlKey || e.type === 'wheel') && !e.button)
-    .on('zoom', e => { S.t = e.transform; drawAll(); });
+    .on('zoom', e => { S.t = e.transform; pinsBox.classList.add('nofx'); drawAll(); })
+    .on('end.fx', () => pinsBox.classList.remove('nofx'));
   d3.select(main).call(zoom).on('dblclick.zoom', null);
   main.addEventListener('dblclick', () => resetView());
   $('resetCam').addEventListener('click', () => resetView());
@@ -1409,6 +1412,8 @@
       if (!el) {
         el = document.createElement('div');
         el.dataset.name = s.name;
+        el.dataset.fresh = '1';
+        el.style.transition = 'none';
         pinsBox.appendChild(el);
       }
       el.className = 'pinlabel' + (s.search ? ' search' : '');
@@ -1440,39 +1445,68 @@
       if (!hidden) vis.push({ el, s, w: 0 });
     }
 
-    // waterfall de-overlap: clustered chips (lasso!) spread downward instead of stacking;
-    // displaced chips get a thin connector back to their point
+    // radial de-overlap: each chip tries positions all around its point (near first,
+    // then farther out, then a spiral), so clusters spread around their perimeter
+    // instead of stacking into a column; connectors tie displaced chips to points
     for (const v of vis) v.w = v.el.offsetWidth || 60;
     const CH = 22, GAP = 2;
-    for (const v of vis) {
-      v.flip = v.s.x > W - 130;
-      v.x = v.flip ? v.s.x - 9 - v.w : v.s.x + 9;
-      v.y = v.s.y - 21;
-    }
-    vis.sort((a, b) => a.y - b.y || a.x - b.x);
     const placed = [];
+    const collides = (x, y, w) => {
+      for (const p of placed)
+        if (x < p.x + p.w + GAP && p.x < x + w + GAP &&
+            y < p.y + CH + GAP && p.y < y + CH + GAP) return true;
+      return false;
+    };
+    vis.sort((a, b) => (a.s.name < b.s.name ? -1 : 1));   // stable order across redraws
     for (const v of vis) {
-      let moved = true;
-      while (moved) {
-        moved = false;
-        for (const p of placed) {
-          if (v.x < p.x + p.w + GAP && p.x < v.x + v.w + GAP &&
-              v.y < p.y + CH + GAP && p.y < v.y + CH + GAP) {
-            v.y = p.y + CH + GAP;
-            moved = true;
-          }
+      const px = v.s.x, py = v.s.y, w = v.w;
+      let pos = null;
+      outer:
+      for (const m of [1, 2, 3.1]) {
+        for (const [cx, cy] of [
+          [px + 8 + 4 * m, py - 11],
+          [px - 8 - 4 * m - w, py - 11],
+          [px + 6 + 3 * m, py - 12 - 15 * m],
+          [px + 6 + 3 * m, py - 10 + 15 * m],
+          [px - 6 - 3 * m - w, py - 12 - 15 * m],
+          [px - 6 - 3 * m - w, py - 10 + 15 * m],
+          [px - w / 2, py - 16 - 16 * m],
+          [px - w / 2, py - 6 + 16 * m],
+        ]) {
+          const x = Math.max(2, Math.min(W - w - 2, cx));
+          if (!collides(x, cy, w)) { pos = [x, cy]; break outer; }
         }
       }
-      placed.push(v);
+      if (!pos) {
+        spiral:
+        for (let r = 70; r <= 460; r += 20) {
+          for (let a = 0; a < 18; a++) {
+            const ang = a * Math.PI / 9;
+            const x = Math.max(2, Math.min(W - w - 2, px + r * Math.cos(ang) - w / 2));
+            const y = py + r * Math.sin(ang) - 11;
+            if (!collides(x, y, w)) { pos = [x, y]; break spiral; }
+          }
+        }
+        if (!pos) pos = [px + 12, py - 11];
+      }
+      v.x = pos[0]; v.y = pos[1];
+      placed.push({ x: v.x, y: v.y, w });
       v.el.style.left = v.x + 'px';
       v.el.style.top = v.y + 'px';
     }
+    requestAnimationFrame(() => {
+      for (const v of vis)
+        if (v.el.dataset.fresh) { delete v.el.dataset.fresh; v.el.style.transition = ''; }
+    });
     octx.strokeStyle = 'rgba(34,53,43,0.35)';
     octx.lineWidth = 0.8;
     octx.beginPath();
     for (const v of vis) {
-      if (Math.abs(v.y - (v.s.y - 21)) < 5) continue;
-      octx.moveTo(v.flip ? v.x + v.w + 2 : v.x - 2, v.y + 11);
+      const cx = v.x + v.w / 2, cy = v.y + 11;
+      if (Math.hypot(cx - v.s.x, cy - v.s.y) < 30) continue;
+      const ex = v.s.x < v.x ? v.x - 2 : (v.s.x > v.x + v.w ? v.x + v.w + 2 : cx);
+      const ey = ex === cx ? (v.s.y < cy ? v.y - 2 : v.y + CH + 2) : cy;
+      octx.moveTo(ex, ey);
       octx.lineTo(v.s.x, v.s.y);
     }
     octx.stroke();
