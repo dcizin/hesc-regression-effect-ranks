@@ -134,7 +134,8 @@
   #labelInfo, #selfInfo { display: inline-flex; gap: 16px; }
   .key { display: inline-flex; align-items: center; gap: 6px; }
   #nLabelWrap { display: inline-flex; align-items: center; gap: 6px; }
-  #nLabel { width: 80px; accent-color: var(--hot); }
+  #nLabel { width: 80px; accent-color: #EFB98A; }
+  #nLabel:hover, #nLabel:active { accent-color: var(--hot); }
   #nLabelVal { font-size: 13px; color: var(--muted); min-width: 18px; }
   .key i { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
 
@@ -144,12 +145,12 @@
     position: sticky; top: 10px; z-index: 10;
     display: block; width: max-content;
     margin-left: auto; margin-right: 14px;
-    background: var(--ink); color: var(--paper);
+    background: var(--hot-soft); color: #8F4710;
     border-radius: 6px; padding: 4px 11px 5px;
     font: 600 12.5px 'Bricolage Grotesque', sans-serif;
-    box-shadow: 0 2px 6px rgba(34, 53, 43, 0.25);
+    box-shadow: 0 2px 6px rgba(34, 53, 43, 0.18);
   }
-  #resetCam:hover { background: var(--hot); }
+  #resetCam:hover { background: var(--hot); color: var(--panel); }
   canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
   #overlay { pointer-events: none; }
 
@@ -185,8 +186,8 @@
   #dropzone strong { color: var(--ink); font-weight: 500; }
 
 
+  #ymodeCtl { margin-left: auto; }
   #helpBtn {
-    margin-left: auto;
     width: 27px; height: 27px; border-radius: 50%; padding: 0; flex-shrink: 0;
     border: 1.5px solid var(--line); color: var(--muted);
     display: inline-flex; align-items: center; justify-content: center;
@@ -248,7 +249,7 @@
         <button class="tog" data-g="pool" data-v="active">active</button></span>
       <span id="matchInfo" class="mono"></span>
     </div>
-    <div class="ctl"><span>y axis</span><span class="seg">
+    <div class="ctl" id="ymodeCtl"><span>y axis</span><span class="seg">
       <button class="tog" data-g="ymode" data-v="pct">percentile</button>
       <button class="tog on" data-g="ymode" data-v="rank">raw rank</button></span>
     </div>
@@ -938,7 +939,7 @@
     // grid + axes
     mctx.strokeStyle = C.line; mctx.lineWidth = 1;
     mctx.font = '14px "Space Grotesk", sans-serif';
-    mctx.fillStyle = C.muted;
+    mctx.fillStyle = C.ink;
     const yt = S.ymode === 'pct' ? [0, .25, .5, .75, 1].filter(v => zy(v) > M.t-2 && zy(v) < H-M.b+2) : zy.ticks(5);
     mctx.textAlign = 'right'; mctx.textBaseline = 'middle';
     for (const v of yt) {
@@ -959,7 +960,7 @@
       mctx.beginPath(); mctx.moveTo(zxi, M.t); mctx.lineTo(zxi, H - M.b); mctx.stroke();
     }
     // axis titles
-    mctx.fillStyle = C.muted; mctx.font = '16px "Bricolage Grotesque", sans-serif';
+    mctx.fillStyle = C.ink; mctx.font = '500 18px "Bricolage Grotesque", sans-serif';
     mctx.textAlign = 'center'; mctx.textBaseline = 'alphabetic';
     const xlab = S.mode === 'catalog' ? 'Regression coef' : S.valueCol;
     mctx.fillText(xlab, M.l + (W - M.l - M.r)/2, H - 8);
@@ -967,7 +968,7 @@
     if (ptitle) {
       mctx.fillStyle = C.ink; mctx.font = '600 20px "Bricolage Grotesque", sans-serif';
       mctx.fillText(ptitle, M.l + (W - M.l - M.r)/2, 34);
-      mctx.fillStyle = C.muted; mctx.font = '16px "Bricolage Grotesque", sans-serif';
+      mctx.fillStyle = C.ink; mctx.font = '500 18px "Bricolage Grotesque", sans-serif';
     }
     mctx.save();
     mctx.translate(16, M.t + (H - M.t - M.b)/2); mctx.rotate(-Math.PI/2);
