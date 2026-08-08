@@ -76,8 +76,16 @@
   input[type="search"]::-webkit-search-decoration { -webkit-appearance: none; appearance: none; }
   :is(button, select, input, .colbtn):focus-visible { outline: 2px solid var(--hot); outline-offset: 2px; }
   #matchInfo { font-size: 13px; color: var(--muted); min-width: 86px; }
-  #pinMatches { color: var(--hot); font-weight: 500; visibility: hidden; }
+  #pinMatches {
+    position: absolute; right: 5px; top: 50%; transform: translateY(-50%);
+    font: 500 12.5px 'Bricolage Grotesque', sans-serif;
+    color: var(--hot); background: var(--hot-soft);
+    border-radius: 5px; padding: 2px 8px 3px;
+    visibility: hidden;
+  }
   #pinMatches.show { visibility: visible; }
+  #pinMatches:hover { background: var(--hot); color: var(--panel); }
+  #search.has-pin { padding-right: 86px; }
 
   .combo { position: relative; }
   #geneInput { width: 170px; }
@@ -216,10 +224,10 @@
   <div class="ctl"><span>guide</span>
     <div class="combo">
       <input type="search" id="search" placeholder="search guides" disabled>
+      <button id="pinMatches">pin these</button>
       <div id="guideList" class="combolist" hidden></div>
     </div>
     <span id="matchInfo" class="mono"></span>
-    <button id="pinMatches">pin these</button>
   </div>
   <div class="ctl" id="poolCtl" hidden><span>guides</span><span class="seg">
     <button class="tog on" data-g="pool" data-v="all">all</button>
@@ -750,7 +758,9 @@
         if (d.lower[i].includes(S.q) || (d.tlower[i] && d.tlower[i].includes(S.q))) { d.match[i] = 1; m++; }
     }
     $('matchInfo').textContent = S.q ? fmtI(m) + ' match' : '';
-    $('pinMatches').classList.toggle('show', S.q && m > 0 && m <= 15);
+    const pinnable = S.q && m > 0 && m <= 15;
+    $('pinMatches').classList.toggle('show', pinnable);
+    $('search').classList.toggle('has-pin', !!pinnable);
     S.matchCount = m;
     let selfN = 0; for (let i = 0; i < d.n; i++) selfN += d.self[i];
     const key = (c, txt) => `<span class="key"><i style="background:${c}"></i>${txt}</span>`;
