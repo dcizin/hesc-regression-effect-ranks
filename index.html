@@ -107,6 +107,12 @@
   }
   .combolist button:hover, .combolist button.sel { background: var(--hot-soft); }
   .combolist button.cur { color: var(--hot); font-weight: 500; }
+  .combolist .n { float: right; color: var(--muted); font-size: 12px; margin-left: 12px; }
+  #guideSub { z-index: 21; }
+  @media (prefers-reduced-motion: no-preference) {
+    #guideSub:not([hidden]) { animation: subin 0.08s ease-out; }
+  }
+  @keyframes subin { from { opacity: 0; transform: translateX(-3px); } }
   .combolist .dim { color: var(--muted); font-size: 12px; padding: 4px 10px 5px; }
 
   #colstrip {
@@ -258,6 +264,7 @@
         <input type="search" id="search" placeholder="search guides" disabled>
         <button id="pinMatches">pin these</button>
         <div id="guideList" class="combolist" hidden></div>
+        <div id="guideSub" class="combolist" hidden></div>
       </div>
       <span class="seg" id="poolCtl" hidden>
         <button class="tog on" data-g="pool" data-v="all">all</button>
@@ -746,7 +753,14 @@
 
   // ---------- search ----------
   const searchEl = $('search'), guideListEl = $('guideList');
-  let sSel = 0, gdListKey = null;    // state|pool the guide-list DOM currently holds
+  let sSel = 0, gdListKey = null, tgMap = null;   // state|pool the target-list DOM holds
+
+  const guideSubEl = $('guideSub');
+
+  function hideSub() {
+    guideSubEl.hidden = true;
+    guideSubEl.dataset.tgt = '';
+  }
 
   function markSSel(i, scrollMode) {
     const btns = guideListEl.children;
@@ -758,32 +772,60 @@
     if (scrollMode) btns[sSel].scrollIntoView({ block: scrollMode });
   }
 
-  // gene-style dropdown: the FULL guide list in the current all/active scope, always
-  // shown scrollable; typing jumps to the first match (by name, then target)
+  // main dropdown lists gene TARGETS (scoped by all/active); hovering a target opens an
+  // adjacent pane with its individual guides
   function buildGuideList() {
     const meta = S.guideMeta[S.state];
-    const parts = [];
+    tgMap = new Map();
     for (let i = 0; i < meta.guide.length; i++) {
       if (S.pool === 'active' && !meta.active[i]) continue;
-      parts.push(`<button data-guide="${esc(meta.guide[i])}" data-i="${i}">${esc(meta.guide[i])}</button>`);
+      const tg = meta.target[i] || meta.guide[i];
+      if (!tgMap.has(tg)) tgMap.set(tg, []);
+      tgMap.get(tg).push(i);
     }
-    guideListEl.innerHTML = parts.join('');
+    const names = [...tgMap.keys()].sort();
+    guideListEl.innerHTML = names.map(tg =>
+      `<button data-tgt="${esc(tg)}">${esc(tg)}<span class="n">${tgMap.get(tg).length}</span></button>`).join('');
     gdListKey = S.state + '|' + S.pool;
+    hideSub();
+  }
+
+  function showSub(tg, row) {
+    const meta = S.guideMeta[S.state];
+    const idxs = tgMap.get(tg) || [];
+    guideSubEl.innerHTML = idxs.map(i =>
+      `<button data-guide="${esc(meta.guide[i])}">${esc(meta.guide[i])}</button>`).join('');
+    guideSubEl.hidden = false;
+    guideSubEl.dataset.tgt = tg;
+    guideSubEl.style.left = (guideListEl.offsetWidth + 2) + 'px';
+    const comboRect = guideSubEl.parentElement.getBoundingClientRect();
+    const rowRect = row.getBoundingClientRect();
+    const maxTop = window.innerHeight - comboRect.top - guideSubEl.offsetHeight - 12;
+    guideSubEl.style.top = Math.max(4, Math.min(rowRect.top - comboRect.top, maxTop)) + 'px';
   }
 
   function jumpGuide(q) {
     const btns = guideListEl.children;
     if (!btns.length) return;
     if (!q) { markSSel(0, 'nearest'); return; }
-    const meta = S.guideMeta[S.state];
-    let pre = -1, sub = -1, tgt = -1;
+    let pre = -1, sub = -1;
     for (let k = 0; k < btns.length; k++) {
-      const gl = btns[k].dataset.guide.toLowerCase();
-      if (gl.startsWith(q)) { pre = k; break; }
-      if (sub < 0 && gl.includes(q)) sub = k;
-      if (tgt < 0 && meta.tlower[+btns[k].dataset.i].includes(q)) tgt = k;
+      const tl = btns[k].dataset.tgt.toLowerCase();
+      if (tl.startsWith(q)) { pre = k; break; }
+      if (sub < 0 && tl.includes(q)) sub = k;
     }
-    const k = pre >= 0 ? pre : (sub >= 0 ? sub : tgt);
+    let k = pre >= 0 ? pre : sub;
+    if (k < 0) {                    // query may be a guide name — jump to its target row
+      const meta = S.guideMeta[S.state];
+      for (let i = 0; i < meta.guide.length; i++) {
+        if (meta.guide[i].toLowerCase().includes(q)) {
+          const tg = meta.target[i] || meta.guide[i];
+          for (let j = 0; j < btns.length; j++)
+            if (btns[j].dataset.tgt === tg) { k = j; break; }
+          break;
+        }
+      }
+    }
     if (k >= 0) markSSel(k, 'center');
   }
 
@@ -798,30 +840,42 @@
   function pickGuide(g) {
     searchEl.value = g; S.q = g.toLowerCase();
     guideListEl.hidden = true;
+    hideSub();
     applySearch(); drawAll();
   }
 
   guideListEl.addEventListener('pointerdown', e => {
+    const b = e.target.closest('button[data-tgt]');
+    if (b) { e.preventDefault(); pickGuide(b.dataset.tgt); }
+  });
+  guideListEl.addEventListener('mouseover', e => {
+    const b = e.target.closest('button[data-tgt]');
+    if (b && guideSubEl.dataset.tgt !== b.dataset.tgt) showSub(b.dataset.tgt, b);
+  });
+  guideListEl.addEventListener('scroll', hideSub);
+  guideSubEl.addEventListener('pointerdown', e => {
     const b = e.target.closest('button[data-guide]');
     if (b) { e.preventDefault(); pickGuide(b.dataset.guide); }
   });
   searchEl.addEventListener('input', () => {
     S.q = searchEl.value.trim().toLowerCase();
     applySearch(); drawAll();
+    hideSub();
     if (guideListEl.hidden) openGuideList(); else jumpGuide(S.q);
   });
   searchEl.addEventListener('focus', () => { searchEl.select(); openGuideList(); });
-  searchEl.addEventListener('blur', () => setTimeout(() => { guideListEl.hidden = true; }, 120));
+  searchEl.addEventListener('blur', () => setTimeout(() => { guideListEl.hidden = true; hideSub(); }, 120));
   searchEl.addEventListener('keydown', e => {
     const btns = guideListEl.children;
     if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
       e.preventDefault();
       if (guideListEl.hidden) openGuideList();
-      else markSSel(sSel + (e.key === 'ArrowDown' ? 1 : -1), 'nearest');
+      else { markSSel(sSel + (e.key === 'ArrowDown' ? 1 : -1), 'nearest'); hideSub(); }
     } else if (e.key === 'Enter') {
-      if (!guideListEl.hidden && btns.length) pickGuide(btns[sSel].dataset.guide);
+      if (!guideListEl.hidden && btns.length) pickGuide(btns[sSel].dataset.tgt);
     } else if (e.key === 'Escape') {
       guideListEl.hidden = true;
+      hideSub();
       searchEl.value = ''; S.q = ''; applySearch(); drawAll();
     }
   });
