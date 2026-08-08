@@ -20,8 +20,7 @@
   }
   * { box-sizing: border-box; margin: 0; }
   [hidden] { display: none !important; }
-  html { height: 100%; }
-  body { min-height: 100%; }
+  html, body { height: 100%; }
   body {
     font-family: 'Bricolage Grotesque', system-ui, sans-serif;
     background: var(--paper);
@@ -139,7 +138,18 @@
   #nLabelVal { font-size: 13px; color: var(--muted); min-width: 18px; }
   .key i { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
 
-  #stage { flex: 1; position: relative; min-height: 0; transition: min-height 0.35s ease; }
+  #stage { flex: 1; min-height: 0; overflow-y: auto; }
+  #stageInner { position: relative; height: 100%; transition: min-height 0.35s ease; }
+  #resetCam {
+    position: sticky; top: 10px; z-index: 10;
+    display: block; width: max-content;
+    margin-left: auto; margin-right: 14px;
+    background: var(--ink); color: var(--paper);
+    border-radius: 6px; padding: 4px 11px 5px;
+    font: 600 12.5px 'Bricolage Grotesque', sans-serif;
+    box-shadow: 0 2px 6px rgba(34, 53, 43, 0.25);
+  }
+  #resetCam:hover { background: var(--hot); }
   canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
   #overlay { pointer-events: none; }
 
@@ -294,12 +304,15 @@
 </div>
 
 <div id="stage">
-  <canvas id="main"></canvas>
-  <canvas id="overlay"></canvas>
-  <div id="pins"></div>
-  <div id="tip"></div>
-  <div id="dropzone">
-    <div><strong>Loading the gene catalog…</strong></div>
+  <div id="stageInner">
+    <button id="resetCam" hidden>reset camera</button>
+    <canvas id="main"></canvas>
+    <canvas id="overlay"></canvas>
+    <div id="pins"></div>
+    <div id="tip"></div>
+    <div id="dropzone">
+      <div><strong>Loading the gene catalog…</strong></div>
+    </div>
   </div>
 </div>
 
@@ -327,7 +340,7 @@
   const M = { l: 84, r: 20, t: 54, b: 56 };
 
   const $ = id => document.getElementById(id);
-  const stage = $('stage'), main = $('main'), over = $('overlay');
+  const stage = $('stage'), stageInner = $('stageInner'), main = $('main'), over = $('overlay');
   const mctx = main.getContext('2d'), octx = over.getContext('2d');
   const tip = $('tip'), pinsBox = $('pins');
   let W = 0, H = 0, sx = null, sy = null, qt = null;
@@ -393,6 +406,7 @@
     }
     dz.style.display = 'none';
     $('infobar').hidden = false;
+    $('resetCam').hidden = false;
     $('search').disabled = false;
     syncCtls();
   }
@@ -654,8 +668,8 @@
       for (const i of d.topIdx.concat(d.botIdx)) (d.x[i] >= 0 ? r++ : l++);
       need = Math.max(r, l) * 18 + M.t + M.b + 40;
     }
-    const avail = window.innerHeight - stage.getBoundingClientRect().top - 1;
-    stage.style.minHeight = need > avail ? need + 'px' : '';
+    const avail = stage.clientHeight - 1;
+    stageInner.style.minHeight = need > avail ? need + 'px' : '';
   }
 
   const nLabelEl = $('nLabel');
@@ -668,14 +682,14 @@
   // ---------- layout / scales ----------
   function resize() {
     const dpr = window.devicePixelRatio || 1;
-    W = stage.clientWidth; H = stage.clientHeight;
+    W = stageInner.clientWidth; H = stageInner.clientHeight;
     for (const c of [main, over]) {
       c.width = W * dpr; c.height = H * dpr;
       c.getContext('2d').setTransform(dpr, 0, 0, dpr, 0, 0);
     }
     if (S.d) { buildScales(); drawAll(); }
   }
-  new ResizeObserver(resize).observe(stage);
+  new ResizeObserver(resize).observe(stageInner);
 
   function buildScales() {
     const d = S.d;
@@ -712,6 +726,7 @@
     .on('zoom', e => { S.t = e.transform; drawAll(); });
   d3.select(main).call(zoom).on('dblclick.zoom', null);
   main.addEventListener('dblclick', () => resetView());
+  $('resetCam').addEventListener('click', () => resetView());
 
   // ---------- search ----------
   const searchEl = $('search'), guideListEl = $('guideList');
