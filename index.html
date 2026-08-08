@@ -308,6 +308,7 @@
   const mctx = main.getContext('2d'), octx = over.getContext('2d');
   const tip = $('tip'), pinsBox = $('pins');
   let W = 0, H = 0, sx = null, sy = null, qt = null;
+  let labelHits = [];   // hit boxes for on-plot labels + their leader lines
 
   const css = v => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
   const C = { ink: css('--ink'), muted: css('--muted'), line: css('--line'),
@@ -315,10 +316,10 @@
   const fmt = d3.format('.4~g'), fmtP = d3.format('.3f'), fmtI = d3.format(',');
   // Mark palette, validated all-pairs for CVD + normal vision on this surface
   // (dataviz validate_palette.js: worst pair ΔE 13.0 deutan / 16.3 normal — passes).
-  const COL = { up: '#e34948', down: '#2a78d6', self: '#4a3aa7' };
+  const COL = { up: '#d23b4d', down: '#2a78d6', self: '#7c2fae' };
   // Same-target label grouping: dark text-safe family hues, assigned per target name
   // (stable across genes/states). Self-target labels always use COL.self.
-  const FAM = ['#0e6b5e', '#96276e', '#845d00', '#5f6b1f', '#7d4a21'];
+  const FAM = ['#0b6e63', '#a02458', '#8a5c00', '#59701a', '#7c4a22'];
   const famHash = str => {
     let h = 0;
     for (let i = 0; i < str.length; i++) h = (h * 31 + str.charCodeAt(i)) >>> 0;
@@ -694,7 +695,7 @@
     const key = (c, txt) => `<span class="key"><i style="background:${c}"></i>${txt}</span>`;
     $('selfInfo').innerHTML = selfN
       ? key(COL.self, `${selfN} guide${selfN > 1 ? 's' : ''} target ${esc(S.gene)}`) : '';
-    $('labelInfo').innerHTML = (S.labels === 'top' && !S.q)
+    $('labelInfo').innerHTML = (S.labels === 'top')
       ? key(COL.up, `top ${d.topIdx.length} upregulating guides`) +
         key(COL.down, `top ${d.botIdx.length} downregulating guides`) : '';
     $('nLabelWrap').hidden = S.labels !== 'top';
@@ -717,9 +718,25 @@
     const p = qt.find(bx, by, 12 / S.t.k);
     return p === undefined ? -1 : p;
   }
+
+  function _segDist(mx, my, x1, y1, x2, y2) {
+    const dx = x2 - x1, dy = y2 - y1;
+    const tt = Math.max(0, Math.min(1, ((mx - x1) * dx + (my - y1) * dy) / (dx * dx + dy * dy || 1)));
+    const px = x1 + tt * dx, py = y1 + tt * dy;
+    return Math.hypot(mx - px, my - py);
+  }
+
+  function findLabelAt(mx, my) {
+    for (const h of labelHits) {
+      if (mx >= h.x0 - 2 && mx <= h.x1 + 2 && Math.abs(my - h.ly) <= 9) return h.i;
+      if (_segDist(mx, my, h.px, h.py, h.ex, h.ly) < 4) return h.i;
+    }
+    return -1;
+  }
   main.addEventListener('mousemove', e => {
     const r = main.getBoundingClientRect();
-    const i = findAt(e.clientX - r.left, e.clientY - r.top);
+    let i = findAt(e.clientX - r.left, e.clientY - r.top);
+    if (i < 0) i = findLabelAt(e.clientX - r.left, e.clientY - r.top);
     if (i !== S.hover) { S.hover = i; drawOverlay(); }
     if (i >= 0) {
       const d = S.d;
@@ -741,7 +758,8 @@
   main.addEventListener('mouseleave', () => { S.hover = -1; tip.style.display = 'none'; drawOverlay(); });
   main.addEventListener('click', e => {
     const r = main.getBoundingClientRect();
-    const i = findAt(e.clientX - r.left, e.clientY - r.top);
+    let i = findAt(e.clientX - r.left, e.clientY - r.top);
+    if (i < 0) i = findLabelAt(e.clientX - r.left, e.clientY - r.top);
     if (i < 0) return;
     const nm = S.d.names[i];
     S.pinned.has(nm) ? S.pinned.delete(nm) : S.pinned.add(nm);
@@ -817,8 +835,8 @@
     mctx.save();
     mctx.translate(16, M.t + (H - M.t - M.b)/2); mctx.rotate(-Math.PI/2);
     const ylab = d.useFile
-      ? (S.ymode === 'pct' ? 'Gene-rank percentile (0 = most upregulated)'
-                           : 'Gene rank within guide (0 = most upregulated)')
+      ? (S.ymode === 'pct' ? "Gene-rank percentile (0 = guide's most upregulated gene)"
+                           : "Gene rank within guide (0 = guide's most upregulated gene)")
       : (S.ymode === 'pct' ? 'Percentile among guides' : 'Rank among guides (1 = lowest coef)');
     mctx.fillText(ylab, 0, 0);
     mctx.restore();
@@ -827,16 +845,13 @@
     mctx.save();
     mctx.beginPath(); mctx.rect(M.l, M.t, W - M.l - M.r, H - M.t - M.b); mctx.clip();
 
-    const searching = !!d.match;
-    const labeling = S.labels === 'top' && !searching;
-    const baseCol = searching ? 'rgba(34,53,43,0.10)' : 'rgba(34,53,43,0.48)';
+    const labeling = S.labels === 'top';
     const R = 2.6, TAU = Math.PI * 2;
 
-    mctx.fillStyle = baseCol;
+    mctx.fillStyle = 'rgba(34,53,43,0.48)';
     mctx.beginPath();
     for (let i = 0; i < d.n; i++) {
-      if (searching ? d.match[i]
-                    : (d.self[i] || (labeling && (d.topSet.has(i) || d.botSet.has(i))))) continue;
+      if (d.self[i] || (labeling && (d.topSet.has(i) || d.botSet.has(i)))) continue;
       const x = t.x + t.k * d.bx[i], y = t.y + t.k * d.by[i];
       if (x < M.l-4 || x > W-M.r+4 || y < M.t-4 || y > H-M.b+4) continue;
       mctx.moveTo(x + R, y); mctx.arc(x, y, R, 0, TAU);
@@ -859,13 +874,8 @@
       dotPass(d.topIdx, COL.up, 3.8, i => d.self[i]);
       dotPass(d.botIdx, COL.down, 3.8, i => d.self[i]);
     }
-    if (searching) {
-      const m = []; for (let i = 0; i < d.n; i++) if (d.match[i]) m.push(i);
-      dotPass(m, C.hot, 3.4);
-    } else {
-      const sf = []; for (let i = 0; i < d.n; i++) if (d.self[i]) sf.push(i);
-      dotPass(sf, COL.self, 4.25);
-    }
+    const sf = []; for (let i = 0; i < d.n; i++) if (d.self[i]) sf.push(i);
+    dotPass(sf, COL.self, 4.25);
     mctx.restore();
   }
 
@@ -883,9 +893,24 @@
       const i = d.nameToIdx.get(nm);
       if (i !== undefined) pinIdx.push(i);       // guide absent from this state / filter -> skip
     }
-    const labeling = S.labels === 'top' && !d.match;
+    labelHits = [];
+    const labeling = S.labels === 'top';
     const cmap = targetColors(d, labeling ? d.topIdx.concat(d.botIdx, pinIdx) : pinIdx);
-    if (labeling) drawAutoLabels(d, t, cmap);
+    if (labeling || (d.match && S.matchCount <= 20)) drawAutoLabels(d, t, cmap);
+
+    // search matches: hot rings over whatever is already drawn — an added layer,
+    // never a repaint of the base plot
+    if (d.match) {
+      octx.strokeStyle = C.hot; octx.lineWidth = 1.6;
+      octx.beginPath();
+      for (let i = 0; i < d.n; i++) {
+        if (!d.match[i]) continue;
+        const x = t.applyX(d.bx[i]), y = t.applyY(d.by[i]);
+        if (x < M.l - 6 || x > W - M.r + 6 || y < M.t - 6 || y > H - M.b + 6) continue;
+        octx.moveTo(x + 5.5, y); octx.arc(x, y, 5.5, 0, Math.PI * 2);
+      }
+      octx.stroke();
+    }
 
     // pinned rings + leaders (pins are guide names, resolved against the current view)
     for (const i of pinIdx) {
@@ -925,7 +950,12 @@
       return (x >= M.l - 4 && x <= W - M.r + 4 && y >= M.t - 4 && y <= H - M.b + 4)
         ? { i, x, y } : null;
     };
-    const all = d.topIdx.concat(d.botIdx).map(vis).filter(Boolean);
+    const auto = S.labels === 'top' ? d.topIdx.concat(d.botIdx) : [];
+    const matchIdx = [];
+    if (d.match && S.matchCount <= 20)
+      for (let i = 0; i < d.n; i++) if (d.match[i]) matchIdx.push(i);
+    const matchSet = new Set(matchIdx);
+    const all = auto.filter(i => !matchSet.has(i)).concat(matchIdx).map(vis).filter(Boolean);
     if (!all.length) return;
     octx.font = '500 13.5px "Bricolage Grotesque", sans-serif';
     // Label columns anchored just outside the data (notebook: xmax + 0.10*xr), so leaders
@@ -944,13 +974,19 @@
       const ys = stackYs(s.pts.map(p => p.y), M.t + 10, H - M.b - 12, 18);
       s.pts.forEach((p, k) => {
         const name = d.names[p.i], ly = ys[k];
-        const ex = nbStyle ? s.ax + s.dir * 3
-                           : s.ax + s.dir * (octx.measureText(name).width + 3);
-        octx.strokeStyle = 'rgba(34,53,43,0.28)'; octx.lineWidth = 0.7;
+        const hov = S.hover === p.i;
+        octx.font = (hov ? '600' : '500') + ' 13.5px "Bricolage Grotesque", sans-serif';
+        const tw = octx.measureText(name).width;
+        const ex = nbStyle ? s.ax + s.dir * 3 : s.ax + s.dir * (tw + 3);
+        octx.strokeStyle = hov ? 'rgba(34,53,43,0.65)' : 'rgba(34,53,43,0.28)';
+        octx.lineWidth = hov ? 1.4 : 0.7;
         octx.beginPath(); octx.moveTo(p.x, p.y); octx.lineTo(ex, ly); octx.stroke();
-        octx.fillStyle = cmap.get(d.target[p.i]) || C.ink;
+        octx.fillStyle = matchSet.has(p.i) ? C.hot : (cmap.get(d.target[p.i]) || C.ink);
         octx.textAlign = s.align; octx.textBaseline = 'middle';
         octx.fillText(name, s.ax, ly);
+        labelHits.push({ i: p.i, ly, px: p.x, py: p.y, ex,
+                         x0: s.align === 'left' ? s.ax : s.ax - tw,
+                         x1: s.align === 'left' ? s.ax + tw : s.ax });
       });
     }
   }
