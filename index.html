@@ -176,6 +176,8 @@
     box-shadow: 0 2px 6px rgba(34, 53, 43, 0.18);
   }
   .stagebtn:hover { background: var(--hot); color: var(--panel); }
+  .stagebtn.on { background: var(--hot); color: var(--panel); }
+  #stage.lassoing canvas { cursor: crosshair !important; }
   #rankBox {
     position: relative; background: var(--panel); border-radius: 12px;
     width: min(720px, 92vw); max-height: 84vh;
@@ -367,6 +369,8 @@
 <div id="infobar" hidden><span id="labelInfo"></span><span id="selfInfo"></span>
   <span id="counts" class="mono"></span>
   <button class="filebtn" id="clearPins" disabled>clear all pins</button>
+  <button class="stagebtn" id="lassoBtn" hidden
+    title="circle points to pin them — or hold Shift and drag">lasso</button>
   <div class="ctl" id="labelCtl"><span>labels</span><span class="seg">
     <button class="tog on" data-g="labels" data-v="top">top hits</button>
     <button class="tog" data-g="labels" data-v="off">off</button></span>
@@ -408,6 +412,7 @@
     guideMeta: {},                    // state -> {guide:[], target:[], tlower:[], active:[]}
     nRankUniverse: null,
     q: '', pinned: new Set(),         // guide names — survive gene AND state switches
+    lasso: false,
     d: null,                          // current column data
     t: d3.zoomIdentity,
     hover: -1,
@@ -484,6 +489,7 @@
     $('infobar').hidden = false;
     $('resetCam').hidden = false;
     $('viewRank').hidden = false;
+    $('lassoBtn').hidden = false;
     $('search').disabled = false;
     syncCtls();
   }
@@ -800,6 +806,8 @@
 
   // ---------- zoom ----------
   const zoom = d3.zoom().scaleExtent([0.23, 60])
+    .filter(e => (e.type === 'wheel' || (!S.lasso && !e.shiftKey)) &&
+                 (!e.ctrlKey || e.type === 'wheel') && !e.button)
     .on('zoom', e => { S.t = e.transform; drawAll(); });
   d3.select(main).call(zoom).on('dblclick.zoom', null);
   main.addEventListener('dblclick', () => resetView());
@@ -1007,30 +1015,97 @@
     }
     return -1;
   }
+  function showTip(i, hint) {
+    const d = S.d;
+    const rankLine = d.useFile
+      ? (S.ymode === 'pct' ? 'pct ' + fmtP(d.pct[i]) : 'rank ' + fmtI(d.rank[i]) + ' / ' + fmtI(d.nU))
+      : (S.ymode === 'pct' ? 'pct ' + fmtP(d.pct[i]) : 'rank ' + fmtI(d.rank[i]));
+    tip.innerHTML = '<b>' + esc(d.names[i]) + '</b>' +
+      (d.active[i] ? ' <span class="star">★</span>' : '') + '<br>' +
+      esc(S.valueCol) + ' <b>' + fmt(d.x[i]) + '</b><br>' + rankLine +
+      (d.target[i] ? '<br>target ' + esc(d.target[i]) : '') +
+      (hint ? '<br><span style="opacity:0.6">' + hint + '</span>' : '');
+    const px = S.t.applyX(d.bx[i]), py = S.t.applyY(d.by[i]);
+    tip.style.display = 'block';
+    const tw = tip.offsetWidth;
+    tip.style.left = Math.min(Math.max(px + 14, 4), W - tw - 4) + 'px';
+    tip.style.top = Math.max(py - 14 - tip.offsetHeight, 4) + 'px';
+  }
+
+  // lasso: circle points to pin them (lasso mode button, or Shift+drag any time)
+  let lassoActive = false, lassoPts = [], suppressClick = false, flashTimer = null;
+
+  function flash(msg) {
+    $('counts').textContent = msg;
+    clearTimeout(flashTimer);
+    flashTimer = setTimeout(() => { if (S.d) applySearch(); }, 2800);
+  }
+
+  function pointInPoly(x, y, pts) {
+    let inside = false;
+    for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
+      const xi = pts[i][0], yi = pts[i][1], xj = pts[j][0], yj = pts[j][1];
+      if ((yi > y) !== (yj > y) && x < (xj - xi) * (y - yi) / (yj - yi) + xi) inside = !inside;
+    }
+    return inside;
+  }
+
+  function finishLasso() {
+    const d = S.d, t = S.t, CAP = 200;
+    const names = [];
+    for (let i = 0; i < d.n; i++) {
+      if (pointInPoly(t.applyX(d.bx[i]), t.applyY(d.by[i]), lassoPts)) names.push(d.names[i]);
+    }
+    if (!names.length) return;
+    if (names.length > CAP) {
+      flash('lasso caught ' + fmtI(names.length) + ' guides — over the ' + CAP + ' cap, zoom in first');
+      return;
+    }
+    for (const nm of names) S.pinned.add(nm);
+    applySearch();
+    flash('pinned ' + names.length + ' guide' + (names.length > 1 ? 's' : ''));
+  }
+
+  $('lassoBtn').addEventListener('click', () => {
+    S.lasso = !S.lasso;
+    $('lassoBtn').classList.toggle('on', S.lasso);
+    stage.classList.toggle('lassoing', S.lasso);
+  });
+  main.addEventListener('mousedown', e => {
+    if (!S.d || !(S.lasso || e.shiftKey)) return;
+    const r = main.getBoundingClientRect();
+    lassoActive = true;
+    lassoPts = [[e.clientX - r.left, e.clientY - r.top]];
+    tip.style.display = 'none';
+    e.preventDefault();
+  });
+  window.addEventListener('mouseup', () => {
+    if (!lassoActive) return;
+    lassoActive = false;
+    if (lassoPts.length > 2) { finishLasso(); suppressClick = true; }
+    lassoPts = [];
+    drawOverlay();
+  });
+
   main.addEventListener('mousemove', e => {
     const r = main.getBoundingClientRect();
-    let i = findAt(e.clientX - r.left, e.clientY - r.top);
-    if (i < 0) i = findLabelAt(e.clientX - r.left, e.clientY - r.top);
+    const mx = e.clientX - r.left, my = e.clientY - r.top;
+    if (lassoActive) {
+      const last = lassoPts[lassoPts.length - 1];
+      if (Math.hypot(mx - last[0], my - last[1]) > 3) { lassoPts.push([mx, my]); drawOverlay(); }
+      return;
+    }
+    let i = findAt(mx, my);
+    if (i < 0) i = findLabelAt(mx, my);
     if (i !== S.hover) { S.hover = i; drawOverlay(); }
     if (i >= 0) {
-      const d = S.d;
-      const rankLine = d.useFile
-        ? (S.ymode === 'pct' ? 'pct ' + fmtP(d.pct[i]) : 'rank ' + fmtI(d.rank[i]) + ' / ' + fmtI(d.nU))
-        : (S.ymode === 'pct' ? 'pct ' + fmtP(d.pct[i]) : 'rank ' + fmtI(d.rank[i]));
-      tip.innerHTML = '<b>' + esc(d.names[i]) + '</b><br>' +
-        esc(S.valueCol) + ' <b>' + fmt(d.x[i]) + '</b><br>' + rankLine +
-        (d.target[i] ? '<br>target ' + esc(d.target[i]) +
-          (d.active[i] != null ? (d.active[i] ? ' · active' : ' · inactive') : '') : '');
-      const px = S.t.applyX(d.bx[i]), py = S.t.applyY(d.by[i]);
-      tip.style.display = 'block';
-      const tw = tip.offsetWidth;
-      tip.style.left = Math.min(Math.max(px + 14, 4), W - tw - 4) + 'px';
-      tip.style.top = Math.max(py - 14 - tip.offsetHeight, 4) + 'px';
-      main.style.cursor = 'pointer';
-    } else { tip.style.display = 'none'; main.style.cursor = ''; }
+      showTip(i);
+      if (!S.lasso) main.style.cursor = 'pointer';
+    } else { tip.style.display = 'none'; if (!S.lasso) main.style.cursor = ''; }
   });
   main.addEventListener('mouseleave', () => { S.hover = -1; tip.style.display = 'none'; drawOverlay(); });
   main.addEventListener('click', e => {
+    if (suppressClick) { suppressClick = false; return; }
     const r = main.getBoundingClientRect();
     let i = findAt(e.clientX - r.left, e.clientY - r.top);
     if (i < 0) i = findLabelAt(e.clientX - r.left, e.clientY - r.top);
@@ -1236,6 +1311,17 @@
       octx.strokeStyle = C.hot; octx.lineWidth = 1.5;
       octx.beginPath(); octx.arc(x, y, 5.5, 0, Math.PI*2); octx.stroke();
     }
+    if (lassoActive && lassoPts.length > 1) {
+      octx.strokeStyle = C.hot; octx.lineWidth = 1.5;
+      octx.setLineDash([5, 4]);
+      octx.fillStyle = 'rgba(212, 105, 30, 0.07)';
+      octx.beginPath();
+      octx.moveTo(lassoPts[0][0], lassoPts[0][1]);
+      for (let k = 1; k < lassoPts.length; k++) octx.lineTo(lassoPts[k][0], lassoPts[k][1]);
+      octx.closePath();
+      octx.fill(); octx.stroke();
+      octx.setLineDash([]);
+    }
     octx.restore();
     syncPinLabels(seen, cmap);
     $('clearPins').disabled = S.pinned.size === 0;
@@ -1321,6 +1407,20 @@
       el.onclick = () => {
         if (s.search) S.pinned.add(s.name); else S.pinned.delete(s.name);
         applySearch();
+        drawOverlay();
+      };
+      el.onmouseenter = () => {
+        const dd = S.d;
+        if (!dd) return;
+        const i = dd.nameToIdx.get(s.name);
+        if (i === undefined) return;
+        S.hover = i;
+        drawOverlay();
+        showTip(i, s.search ? 'click to pin' : 'click to unpin');
+      };
+      el.onmouseleave = () => {
+        S.hover = -1;
+        tip.style.display = 'none';
         drawOverlay();
       };
       const chipHtml = esc(s.name) + (s.act ? ' <span class="star">★</span>' : '');
