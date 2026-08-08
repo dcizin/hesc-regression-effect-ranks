@@ -32,13 +32,17 @@
   .mono { font-family: 'Space Grotesk', 'Bricolage Grotesque', sans-serif; font-variant-numeric: tabular-nums; }
 
   header {
-    display: flex; align-items: center; flex-wrap: wrap;
-    gap: 10px 22px;
+    display: flex; flex-direction: column; gap: 6px;
     padding: 12px 20px 10px;
   }
+  .hrow { display: flex; align-items: center; flex-wrap: wrap; gap: 10px 22px; }
   header h1 { font-size: 22px; font-weight: 600; letter-spacing: -0.02em; margin-right: 4px; }
   .ctl { display: flex; align-items: center; gap: 8px; }
   .ctl > span { color: var(--muted); font-size: 14px; }
+  /* the action centre: experiment / gene / guide lead the header */
+  .ctl.primary > span { font: 600 15.5px 'Bricolage Grotesque', sans-serif; color: var(--ink); }
+  .ctl.primary input { font-size: 15px; padding: 7px 12px; }
+  .ctl.primary .seg .tog { font-size: 15px; padding: 5px 13px 6px; }
 
   button, .filebtn {
     font: 500 14px 'Bricolage Grotesque', sans-serif;
@@ -214,35 +218,39 @@
 <body>
 
 <header>
-  <h1>hESC Regression Effect Ranks</h1>
-  <div class="ctl" id="stateCtl" hidden><span>state</span><span id="stateBtns" class="seg"></span></div>
-  <div class="ctl" id="geneCtl" hidden><span>gene</span>
-    <div class="combo">
-      <input type="text" id="geneInput" placeholder="pick a gene" autocomplete="off" spellcheck="false">
-      <div id="geneList" class="combolist" hidden></div>
+  <div class="hrow">
+    <h1>hESC Regression Effect Ranks</h1>
+    <div class="ctl primary" id="stateCtl" hidden><span>experiment</span><span id="stateBtns" class="seg"></span></div>
+    <div class="ctl primary" id="geneCtl" hidden><span>gene</span>
+      <div class="combo">
+        <input type="text" id="geneInput" placeholder="pick a gene" autocomplete="off" spellcheck="false">
+        <div id="geneList" class="combolist" hidden></div>
+      </div>
+    </div>
+    <div class="ctl primary"><span>guide</span>
+      <div class="combo">
+        <input type="search" id="search" placeholder="search guides" disabled>
+        <button id="pinMatches">pin these</button>
+        <div id="guideList" class="combolist" hidden></div>
+      </div>
+      <span id="matchInfo" class="mono"></span>
+    </div>
+    <button id="helpBtn" title="How this data was made" aria-label="How this data was made">?</button>
+  </div>
+  <div class="hrow">
+    <div class="ctl" id="poolCtl" hidden><span>guides</span><span class="seg">
+      <button class="tog on" data-g="pool" data-v="all">all</button>
+      <button class="tog" data-g="pool" data-v="active">active</button></span>
+    </div>
+    <div class="ctl" id="basisCtl"><span>rank by</span><span class="seg">
+      <button class="tog on" data-g="basis" data-v="signed">value</button>
+      <button class="tog" data-g="basis" data-v="abs">|value|</button></span>
+    </div>
+    <div class="ctl"><span>y axis</span><span class="seg">
+      <button class="tog" data-g="ymode" data-v="pct">percentile</button>
+      <button class="tog on" data-g="ymode" data-v="rank">raw rank</button></span>
     </div>
   </div>
-  <div class="ctl"><span>guide</span>
-    <div class="combo">
-      <input type="search" id="search" placeholder="search guides" disabled>
-      <button id="pinMatches">pin these</button>
-      <div id="guideList" class="combolist" hidden></div>
-    </div>
-    <span id="matchInfo" class="mono"></span>
-  </div>
-  <div class="ctl" id="poolCtl" hidden><span>guides</span><span class="seg">
-    <button class="tog on" data-g="pool" data-v="all">all</button>
-    <button class="tog" data-g="pool" data-v="active">active</button></span>
-  </div>
-  <div class="ctl" id="basisCtl"><span>rank by</span><span class="seg">
-    <button class="tog on" data-g="basis" data-v="signed">value</button>
-    <button class="tog" data-g="basis" data-v="abs">|value|</button></span>
-  </div>
-  <div class="ctl"><span>y axis</span><span class="seg">
-    <button class="tog" data-g="ymode" data-v="pct">percentile</button>
-    <button class="tog on" data-g="ymode" data-v="rank">raw rank</button></span>
-  </div>
-  <button id="helpBtn" title="How this data was made" aria-label="How this data was made">?</button>
 </header>
 
 <div id="helpModal" hidden>
