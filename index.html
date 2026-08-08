@@ -80,7 +80,7 @@
   #geneInput { width: 170px; }
   .combolist {
     position: absolute; top: calc(100% + 4px); left: 0; z-index: 20;
-    min-width: 220px; max-height: 320px; overflow-y: auto;
+    min-width: 230px; max-height: 60vh; overflow-y: auto;
     background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
     box-shadow: 0 6px 18px rgba(34, 53, 43, 0.10);
     padding: 3px;
@@ -91,6 +91,7 @@
     padding: 5px 10px; border-radius: 5px;
   }
   .combolist button:hover, .combolist button.sel { background: var(--hot-soft); }
+  .combolist button.cur { color: var(--hot); font-weight: 500; }
   .combolist .dim { color: var(--muted); font-size: 12px; padding: 4px 10px 5px; }
 
   #colstrip {
@@ -151,9 +152,8 @@
     display: flex; align-items: center; justify-content: center;
     border: 1.5px dashed var(--line); border-radius: 12px;
     color: var(--muted); font-size: 15px; text-align: center;
-    line-height: 1.7; cursor: pointer; padding: 20px;
+    line-height: 1.7; padding: 20px;
   }
-  #dropzone.hover, #dropzone:hover { border-color: var(--hot); color: var(--ink); }
   #dropzone strong { color: var(--ink); font-weight: 500; }
 
 
@@ -208,9 +208,6 @@
       <div id="geneList" class="combolist" hidden></div>
     </div>
   </div>
-  <button class="filebtn" id="openBtn">open a file</button>
-  <input type="file" id="fileInput" accept=".csv,.tsv,.txt" hidden>
-  <div class="ctl" id="nameCtl"><span>names</span><select id="nameSelect" disabled><option>—</option></select></div>
   <div class="ctl">
     <input type="search" id="search" placeholder="search guides" disabled>
     <span id="matchInfo" class="mono"></span>
@@ -277,9 +274,8 @@
   <canvas id="overlay"></canvas>
   <div id="pins"></div>
   <div id="tip"></div>
-  <div id="dropzone" tabindex="0" role="button">
-    <div><strong>Drop a CSV or TSV</strong> — or click to choose.<br>
-    Ranks are computed right here in your browser; nothing uploads.</div>
+  <div id="dropzone">
+    <div><strong>Loading the gene catalog…</strong></div>
   </div>
 </div>
 
@@ -341,24 +337,8 @@
   }
   const esc = s => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');
 
-  // ---------- generic file loading ----------
-  const dz = $('dropzone'), fi = $('fileInput');
-  const pick = () => fi.click();
-  dz.addEventListener('click', pick);
-  $('openBtn').addEventListener('click', pick);
-  dz.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); pick(); } });
-  ['dragover','dragenter'].forEach(ev => document.addEventListener(ev, e => { e.preventDefault(); dz.classList.add('hover'); }));
-  ['dragleave','drop'].forEach(ev => document.addEventListener(ev, e => { e.preventDefault(); if (ev==='drop' && e.dataTransfer.files.length) loadFile(e.dataTransfer.files[0]); dz.classList.remove('hover'); }));
-  fi.addEventListener('change', () => fi.files.length && loadFile(fi.files[0]));
-
+  const dz = $('dropzone');
   const parseOpts = { header: true, dynamicTyping: true, skipEmptyLines: true };
-
-  function loadFile(file) {
-    Papa.parse(file, { ...parseOpts,
-      complete: res => onParsed(res, file.name, 'generic'),
-      error: () => { dz.firstElementChild.innerHTML = 'That file could not be read — check it is CSV or TSV.'; }
-    });
-  }
 
   function numFrac(f) {
     let n = 0, t = 0;
@@ -388,7 +368,7 @@
     }
     dz.style.display = 'none';
     $('infobar').hidden = false;
-    $('search').disabled = false; $('nameSelect').disabled = false;
+    $('search').disabled = false;
     syncCtls();
   }
 
@@ -440,18 +420,14 @@
       S.state = Object.keys(m.states)[0];
       $('stateCtl').hidden = false; $('geneCtl').hidden = false;
       bindToggles($('stateBtns'));
-      dz.firstElementChild.innerHTML =
-        '<strong>Pick a state and gene above</strong> — or drop any CSV.<br>' +
-        'Per-gene coefficient files load straight from this site; nothing uploads.';
+      dz.firstElementChild.innerHTML = '<strong>Pick a state and gene above.</strong>';
       const st0 = m.states[S.state];
       const g0 = (st0.featured && st0.featured[0]) || st0.genes[0];
       if (g0) { $('geneInput').value = g0; loadGene(g0); }
     }).catch(() => {
-      if (location.protocol === 'file:') {
-        dz.firstElementChild.innerHTML =
-          '<strong>Drop a CSV or TSV</strong> — or click to choose.<br>' +
-          'Nothing uploads.<br><small>(the gene catalog loads once this page is served over HTTP)</small>';
-      }
+      dz.firstElementChild.innerHTML =
+        '<strong>Could not load the gene catalog.</strong><br>' +
+        '<small>Serve this folder over HTTP (e.g. python3 -m http.server) and reload.</small>';
     });
   }
 
@@ -500,48 +476,68 @@
     }
   }
 
-  // gene combobox
+  // gene combobox: the FULL gene list is always shown (scrollable); typing jumps to the
+  // first match instead of filtering, so keyboard and visual scanning are both available.
   const gInput = $('geneInput'), gList = $('geneList');
-  let gSel = 0;
-  function geneMatches(q) {
-    const genes = S.manifest ? S.manifest.states[S.state].genes : [];
-    if (!q) return genes.slice(0, 24);
-    const ql = q.toLowerCase();
-    const pre = [], sub = [];
-    for (const g of genes) {
-      const gl = g.toLowerCase();
-      if (gl.startsWith(ql)) pre.push(g);
-      else if (gl.includes(ql)) sub.push(g);
-      if (pre.length >= 24) break;
-    }
-    return pre.concat(sub).slice(0, 24);
+  let gSel = 0, gListState = null;      // which state's genes the list DOM currently holds
+
+  function buildGeneList() {
+    const genes = S.manifest.states[S.state].genes;
+    gList.innerHTML = genes.map(g => `<button data-gene="${esc(g)}">${esc(g)}</button>`).join('');
+    gListState = S.state;
   }
-  function renderGeneList() {
-    const q = gInput.value.trim();
-    const m = geneMatches(q);
-    gSel = Math.min(gSel, Math.max(0, m.length - 1));
-    gList.innerHTML = m.map((g, i) =>
-      `<button data-gene="${esc(g)}"${i===gSel?' class="sel"':''}>${esc(g)}</button>`).join('') +
-      (m.length ? '' : '<div class="dim">no matching gene</div>');
+
+  function markSel(i, scrollMode) {
+    const btns = gList.children;
+    if (!btns.length) return;
+    gSel = Math.max(0, Math.min(btns.length - 1, i));
+    const old = gList.querySelector('.sel');
+    if (old) old.classList.remove('sel');
+    btns[gSel].classList.add('sel');
+    if (scrollMode) btns[gSel].scrollIntoView({ block: scrollMode });
+  }
+
+  function openGeneList() {
+    if (gListState !== S.state) buildGeneList();
+    for (const b of gList.querySelectorAll('.cur')) b.classList.remove('cur');
+    const genes = S.manifest.states[S.state].genes;
+    const cur = S.gene ? genes.indexOf(S.gene) : -1;
+    if (cur >= 0) gList.children[cur].classList.add('cur');
     gList.hidden = false;
-    gList.querySelectorAll('button').forEach(b =>
-      b.addEventListener('pointerdown', e => { e.preventDefault(); pickGene(b.dataset.gene); }));
+    markSel(cur >= 0 ? cur : 0, 'center');
   }
+
+  function jumpTo(q) {
+    if (!q) return;
+    const genes = S.manifest.states[S.state].genes;
+    let i = genes.findIndex(g => g.toLowerCase().startsWith(q));
+    if (i < 0) i = genes.findIndex(g => g.toLowerCase().includes(q));
+    if (i >= 0) markSel(i, 'center');
+  }
+
   function pickGene(g) {
     gInput.value = g; gList.hidden = true;
     loadGene(g);
   }
-  gInput.addEventListener('input', () => { gSel = 0; renderGeneList(); });
-  gInput.addEventListener('focus', renderGeneList);
+
+  gList.addEventListener('pointerdown', e => {
+    const b = e.target.closest('button[data-gene]');
+    if (b) { e.preventDefault(); pickGene(b.dataset.gene); }
+  });
+  gInput.addEventListener('input', () => {
+    if (gList.hidden) openGeneList();
+    jumpTo(gInput.value.trim().toLowerCase());
+  });
+  gInput.addEventListener('focus', () => { gInput.select(); openGeneList(); });
   gInput.addEventListener('blur', () => setTimeout(() => { gList.hidden = true; }, 120));
   gInput.addEventListener('keydown', e => {
-    const btns = gList.querySelectorAll('button[data-gene]');
+    const btns = gList.children;
     if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
       e.preventDefault();
-      gSel = Math.max(0, Math.min(btns.length - 1, gSel + (e.key === 'ArrowDown' ? 1 : -1)));
-      renderGeneList();
+      if (gList.hidden) openGeneList();
+      else markSel(gSel + (e.key === 'ArrowDown' ? 1 : -1), 'nearest');
     } else if (e.key === 'Enter') {
-      if (btns.length) pickGene(btns[Math.min(gSel, btns.length - 1)].dataset.gene);
+      if (!gList.hidden && btns.length) pickGene(btns[gSel].dataset.gene);
     } else if (e.key === 'Escape') { gList.hidden = true; }
   });
 
@@ -765,17 +761,12 @@
     }));
   }
   bindToggles(document);
-  $('nameSelect').addEventListener('change', e => {
-    S.nameCol = e.target.value || null;
-    if (S.d) { computeData(); drawAll(); }
-  });
 
   function syncCtls() {
     // "rank by" (value vs |value|) only applies when we compute ranks ourselves,
     // i.e. a dropped file with no rank column; a rank column always wins.
     $('basisCtl').hidden = !!S.rankField;
     $('poolCtl').hidden = !(S.mode === 'catalog' || S.fields.includes('active'));
-    $('nameCtl').hidden = S.mode === 'catalog';
   }
 
   // ---------- drawing ----------
