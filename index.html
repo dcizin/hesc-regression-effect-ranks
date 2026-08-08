@@ -887,6 +887,35 @@
     }
     const sf = []; for (let i = 0; i < d.n; i++) if (d.self[i]) sf.push(i);
     dotPass(sf, COL.self, 4.25);
+
+    // guides whose target family has a colour (>= 2 labelled mates) wear it as an
+    // outer outline, outside the paper ring, so point and label always agree
+    if (labeling) {
+      const pIdx = [];
+      for (const nm of S.pinned) {
+        const i = d.nameToIdx.get(nm);
+        if (i !== undefined) pIdx.push(i);
+      }
+      const fmap = targetColors(d, d.topIdx.concat(d.botIdx, pIdx));
+      const groups = new Map();
+      for (const i of d.topIdx.concat(d.botIdx)) {
+        if (d.self[i]) continue;
+        const c = fmap.get(d.target[i]);
+        if (!c || c === COL.self) continue;
+        if (!groups.has(c)) groups.set(c, []);
+        groups.get(c).push(i);
+      }
+      for (const [c, idxs] of groups) {
+        mctx.strokeStyle = c; mctx.lineWidth = 1.6;
+        mctx.beginPath();
+        for (const i of idxs) {
+          const x = t.x + t.k * d.bx[i], y = t.y + t.k * d.by[i];
+          if (x < M.l-6 || x > W-M.r+6 || y < M.t-6 || y > H-M.b+6) continue;
+          mctx.moveTo(x + 5.6, y); mctx.arc(x, y, 5.6, 0, TAU);
+        }
+        mctx.stroke();
+      }
+    }
     mctx.restore();
   }
 
@@ -933,7 +962,7 @@
     // pinned rings + leaders (pins are guide names, resolved against the current view)
     for (const i of pinIdx) {
       const x = t.applyX(d.bx[i]), y = t.applyY(d.by[i]);
-      octx.strokeStyle = C.ink; octx.lineWidth = 1.5;
+      octx.strokeStyle = cmap.get(d.target[i]) || C.ink; octx.lineWidth = 1.5;
       octx.beginPath(); octx.arc(x, y, 6, 0, Math.PI*2); octx.stroke();
       octx.beginPath(); octx.moveTo(x + 4.5, y - 4.5); octx.lineTo(x + 9, y - 9); octx.stroke();
       seen.push({ name: d.names[i], x, y, tgt: d.target[i] });
