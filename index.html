@@ -156,6 +156,38 @@
   #dropzone.hover, #dropzone:hover { border-color: var(--hot); color: var(--ink); }
   #dropzone strong { color: var(--ink); font-weight: 500; }
 
+
+  #helpBtn {
+    margin-left: auto;
+    width: 27px; height: 27px; border-radius: 50%; padding: 0; flex-shrink: 0;
+    border: 1.5px solid var(--line); color: var(--muted);
+    display: inline-flex; align-items: center; justify-content: center;
+    font: 600 15px 'Bricolage Grotesque', sans-serif;
+  }
+  #helpBtn:hover { color: var(--ink); border-color: var(--hot); }
+  #helpModal {
+    position: fixed; inset: 0; z-index: 50;
+    background: rgba(34, 53, 43, 0.35);
+    display: flex; align-items: flex-start; justify-content: center;
+    padding: 7vh 20px 20px; overflow-y: auto;
+  }
+  #helpBox {
+    position: relative; background: var(--panel); border-radius: 12px;
+    max-width: 640px; padding: 26px 30px 24px;
+    box-shadow: 0 12px 40px rgba(34, 53, 43, 0.25);
+    font-size: 14.5px; line-height: 1.6;
+  }
+  #helpBox h2 { font-size: 19px; margin-bottom: 4px; }
+  #helpBox ol { margin: 10px 0 0 20px; }
+  #helpBox li { margin-bottom: 10px; }
+  #helpBox li b { font-weight: 600; }
+  #helpBox .fine { color: var(--muted); font-size: 13.5px; margin-top: 12px; }
+  #helpClose {
+    position: absolute; top: 12px; right: 14px;
+    font-size: 20px; line-height: 1; color: var(--muted); padding: 4px;
+  }
+  #helpClose:hover { color: var(--ink); }
+
   @media (max-width: 640px) {
     header { gap: 8px 16px; padding: 10px 14px 8px; }
     input[type="search"] { width: 140px; }
@@ -196,7 +228,38 @@
     <button class="tog" data-g="ymode" data-v="pct">percentile</button>
     <button class="tog on" data-g="ymode" data-v="rank">raw rank</button></span>
   </div>
+  <button id="helpBtn" title="How this data was made" aria-label="How this data was made">?</button>
 </header>
+
+<div id="helpModal" hidden>
+  <div id="helpBox" role="dialog" aria-modal="true" aria-labelledby="helpTitle">
+    <button id="helpClose" aria-label="close">×</button>
+    <h2 id="helpTitle">How this data was made</h2>
+    <ol>
+      <li><b>Screen.</b> Human embryonic stem cells carrying a CRISPRi library
+      (~13,000 guides against transcription factors and chromatin regulators, several
+      guides per cell — high MOI) were profiled by single-cell RNA-seq in two states:
+      definitive-endoderm differentiated (<b>DE</b>) and pluripotent (<b>ES</b>).</li>
+      <li><b>Per-guide regression.</b> Within each state, every gene's normalized
+      expression is regressed on the cell × guide design matrix (ordinary least squares).
+      Each guide–gene pair gets a <b>coefficient</b>: how much that guide shifts the
+      gene's expression in the cells that carry it. A blank point means the pair was
+      masked in the regression.</li>
+      <li><b>Within-guide gene rank.</b> For each guide, its ~10,000 gene coefficients
+      are sorted; a gene's <b>rank</b> is the number of genes with a larger coefficient
+      (0 = that guide's most-upregulated gene). Because rank is computed inside each
+      guide's own profile, guides with large global effects don't dominate.</li>
+      <li><b>The plot.</b> Pick a gene: each point is one guide — x is its coefficient
+      on that gene, y is the gene's rank within that guide (top = most upregulated).
+      Top-right guides upregulate the gene strongly <i>and</i> specifically;
+      bottom-left the reverse. Violet marks guides targeting the viewed gene itself;
+      the <b>active</b> filter keeps only guides with validated on-target knockdown.</li>
+    </ol>
+    <p class="fine">Genes offered in the picker are those with ≥ 15 guides significant at
+    FDR &lt; 0.05, plus a curated set; all guides are always shown. Coefficients are
+    stored to 3 significant digits.</p>
+  </div>
+</div>
 
 <div id="colstrip" hidden><span>column</span><span id="cols" style="display:flex;gap:18px"></span></div>
 <div id="infobar" hidden><span id="labelInfo"></span><span id="selfInfo"></span>
@@ -897,6 +960,16 @@
       el.style.display = (s.x < M.l - 8 || s.x > W - M.r + 8 || s.y < M.t - 8 || s.y > H - M.b + 8) ? 'none' : '';
     }
   }
+
+
+  // ---------- help modal ----------
+  const helpModal = $('helpModal');
+  $('helpBtn').addEventListener('click', () => { helpModal.hidden = false; });
+  $('helpClose').addEventListener('click', () => { helpModal.hidden = true; });
+  helpModal.addEventListener('click', e => { if (e.target === helpModal) helpModal.hidden = true; });
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape' && !helpModal.hidden) helpModal.hidden = true;
+  });
 
   resize();
   loadManifest();
