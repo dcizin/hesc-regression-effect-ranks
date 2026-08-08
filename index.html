@@ -738,7 +738,7 @@
   function resetView() { buildScales(); S.t = d3.zoomIdentity; d3.select(main).call(zoom.transform, d3.zoomIdentity); drawAll(); }
 
   // ---------- zoom ----------
-  const zoom = d3.zoom().scaleExtent([0.7, 60])
+  const zoom = d3.zoom().scaleExtent([0.23, 60])
     .on('zoom', e => { S.t = e.transform; drawAll(); });
   d3.select(main).call(zoom).on('dblclick.zoom', null);
   main.addEventListener('dblclick', () => resetView());
