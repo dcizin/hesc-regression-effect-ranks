@@ -240,8 +240,9 @@
       <li><b>Per-guide regression.</b> Within each state, every gene's normalized
       expression is regressed on the cell × guide design matrix (ordinary least squares).
       Each guide–gene pair gets a <b>coefficient</b>: how much that guide shifts the
-      gene's expression in the cells that carry it. A blank point means the pair was
-      masked in the regression.</li>
+      gene's expression in the cells that carry it. During fitting each guide's own target gene is
+      masked (on-target knockdown is excluded from the fit), so those guide–gene pairs
+      carry no coefficient and appear blank.</li>
       <li><b>Within-guide gene rank.</b> For each guide, its ~10,000 gene coefficients
       are sorted; a gene's <b>rank</b> is the number of genes with a larger coefficient
       (0 = that guide's most-upregulated gene). Because rank is computed inside each
