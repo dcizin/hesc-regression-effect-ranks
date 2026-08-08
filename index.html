@@ -56,7 +56,8 @@
     box-shadow: 0 1px 2px rgba(34,53,43,0.15), inset 0 0 0 1px rgba(34,53,43,0.05);
   }
   .filebtn { border-bottom: 2px solid var(--line); }
-  .filebtn:hover { border-bottom-color: var(--hot); }
+  .filebtn:hover:not(:disabled) { border-bottom-color: var(--hot); }
+  .filebtn:disabled { opacity: 0.45; cursor: default; color: var(--muted); }
 
   select {
     font: 500 14px 'Space Grotesk', 'Bricolage Grotesque', sans-serif;
@@ -266,6 +267,7 @@
 <div id="colstrip" hidden><span>column</span><span id="cols" style="display:flex;gap:18px"></span></div>
 <div id="infobar" hidden><span id="labelInfo"></span><span id="selfInfo"></span>
   <span id="counts" class="mono"></span>
+  <button class="filebtn" id="clearPins" disabled>clear all pins</button>
   <div class="ctl" id="labelCtl"><span>labels</span><span class="seg">
     <button class="tog on" data-g="labels" data-v="top">top hits</button>
     <button class="tog" data-g="labels" data-v="off">off</button></span>
@@ -709,6 +711,11 @@
         (S.pool === 'active' ? ' · active only' : '');
   }
 
+  $('clearPins').addEventListener('click', () => {
+    S.pinned.clear();
+    drawOverlay();
+  });
+
   $('pinMatches').addEventListener('click', () => {
     const d = S.d;
     for (let i = 0; i < d.n; i++) if (d.match[i]) S.pinned.add(d.names[i]);
@@ -939,6 +946,7 @@
     }
     octx.restore();
     syncPinLabels(seen, cmap);
+    $('clearPins').disabled = S.pinned.size === 0;
   }
 
   // spread label y-positions in a band that hugs the points' own range (short leaders)
