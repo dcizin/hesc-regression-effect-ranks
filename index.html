@@ -108,6 +108,7 @@
   .combolist button:hover, .combolist button.sel { background: var(--hot-soft); }
   .combolist button.cur { color: var(--hot); font-weight: 500; }
   .combolist .n { float: right; color: var(--muted); font-size: 12px; margin-left: 12px; }
+  .star { color: #D9A514; }
   #guideSub { z-index: 21; }
   @media (prefers-reduced-motion: no-preference) {
     #guideSub:not([hidden]) { animation: subin 0.08s ease-out; }
@@ -268,7 +269,7 @@
       </div>
       <span class="seg" id="poolCtl" hidden>
         <button class="tog on" data-g="pool" data-v="all">all</button>
-        <button class="tog" data-g="pool" data-v="active">active</button></span>
+        <button class="tog" data-g="pool" data-v="active">active <span class="star">★</span></button></span>
       <span id="matchInfo" class="mono"></span>
     </div>
     <div class="ctl" id="ymodeCtl"><span>y axis</span><span class="seg">
@@ -379,6 +380,18 @@
   // Same-target label grouping: dark text-safe family hues, assigned per target name
   // (stable across genes/states). Self-target labels always use COL.self.
   const FAM = ['#0b6e63', '#a02458', '#8a5c00', '#59701a', '#7c4a22'];
+  const GOLD = '#D9A514';
+
+  function starPath(ctx, cx, cy, r) {
+    for (let k = 0; k < 5; k++) {
+      const a = -Math.PI / 2 + k * 2 * Math.PI / 5;
+      const b = a + Math.PI / 5;
+      if (k === 0) ctx.moveTo(cx + r * Math.cos(a), cy + r * Math.sin(a));
+      else ctx.lineTo(cx + r * Math.cos(a), cy + r * Math.sin(a));
+      ctx.lineTo(cx + 0.45 * r * Math.cos(b), cy + 0.45 * r * Math.sin(b));
+    }
+    ctx.closePath();
+  }
   const famHash = str => {
     let h = 0;
     for (let i = 0; i < str.length; i++) h = (h * 31 + str.charCodeAt(i)) >>> 0;
@@ -784,8 +797,10 @@
       tgMap.get(tg).push(i);
     }
     const names = [...tgMap.keys()].sort();
-    guideListEl.innerHTML = names.map(tg =>
-      `<button data-tgt="${esc(tg)}">${esc(tg)}<span class="n">${tgMap.get(tg).length}</span></button>`).join('');
+    guideListEl.innerHTML = names.map(tg => {
+      const star = tgMap.get(tg).some(i => meta.active[i]) ? ' <span class="star">★</span>' : '';
+      return `<button data-tgt="${esc(tg)}">${esc(tg)}${star}<span class="n">${tgMap.get(tg).length}</span></button>`;
+    }).join('');
     gdListKey = S.state + '|' + S.pool;
     hideSub();
   }
@@ -794,7 +809,7 @@
     const meta = S.guideMeta[S.state];
     const idxs = tgMap.get(tg) || [];
     guideSubEl.innerHTML = idxs.map(i =>
-      `<button data-guide="${esc(meta.guide[i])}">${esc(meta.guide[i])}</button>`).join('');
+      `<button data-guide="${esc(meta.guide[i])}">${esc(meta.guide[i])}${meta.active[i] ? ' <span class="star">★</span>' : ''}</button>`).join('');
     guideSubEl.hidden = false;
     guideSubEl.dataset.tgt = tg;
     guideSubEl.style.left = (guideListEl.offsetWidth + 2) + 'px';
@@ -1096,6 +1111,17 @@
     }
     const sf = []; for (let i = 0; i < d.n; i++) if (d.self[i]) sf.push(i);
     dotPass(sf, COL.self, 4.25);
+
+    // gold star badge marks active guides (same star as the toggle and the lists)
+    mctx.fillStyle = GOLD;
+    mctx.beginPath();
+    for (let i = 0; i < d.n; i++) {
+      if (!d.active[i]) continue;
+      const x = t.x + t.k * d.bx[i], y = t.y + t.k * d.by[i];
+      if (x < M.l-6 || x > W-M.r+6 || y < M.t-6 || y > H-M.b+6) continue;
+      starPath(mctx, x + 5, y - 5, 3.6);
+    }
+    mctx.fill();
 
     // guides whose target family has a colour (>= 2 labelled mates) wear it as an
     // outer outline, outside the paper ring, so point and label always agree
