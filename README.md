@@ -17,3 +17,18 @@ Local preview: `python3 -m http.server 8000` then open http://localhost:8000/
 To refresh data: re-run the export on iris, then
 `scp iris:.../analysis_final/rankplot_site_data.tar.gz . && tar -xzf rankplot_site_data.tar.gz`
 and commit.
+
+## Publishing (not yet done)
+
+One-time, from this directory, after `gh auth login`:
+
+```bash
+gh repo create rankplot --public --source . --remote origin --push
+gh api -X POST "repos/{owner}/rankplot/pages" -f "source[branch]=main" -f "source[path]=/"
+```
+
+Site URL: `https://<github-username>.github.io/rankplot/` (first deploy takes ~1 min).
+Note: free-plan GitHub Pages requires the repo to be public — the site is
+link-shareable but not access-controlled.
+
+Later updates: commit changes, `git push` — Pages redeploys automatically.
