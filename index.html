@@ -1,0 +1,906 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>RankPlot</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@400;500;600&family=Spline+Sans+Mono:wght@400;500&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.9.0/d3.min.js"></script>
+<style>
+  :root {
+    --paper: #F3F5EF;
+    --panel: #FBFCF9;
+    --ink: #22352B;
+    --muted: #6E7F72;
+    --line: #DCE3D8;
+    --hot: #D4691E;
+    --hot-soft: #F7E4D2;
+  }
+  * { box-sizing: border-box; margin: 0; }
+  [hidden] { display: none !important; }
+  html, body { height: 100%; }
+  body {
+    font-family: 'Bricolage Grotesque', system-ui, sans-serif;
+    background: var(--paper);
+    color: var(--ink);
+    display: flex; flex-direction: column;
+    font-size: 14px;
+  }
+  .mono { font-family: 'Spline Sans Mono', monospace; }
+
+  header {
+    display: flex; align-items: center; flex-wrap: wrap;
+    gap: 10px 22px;
+    padding: 12px 20px 10px;
+  }
+  header h1 { font-size: 22px; font-weight: 600; letter-spacing: -0.02em; margin-right: 4px; }
+  .ctl { display: flex; align-items: center; gap: 8px; }
+  .ctl > span { color: var(--muted); font-size: 14px; }
+
+  button, .filebtn {
+    font: 500 14px 'Bricolage Grotesque', sans-serif;
+    color: var(--ink); background: none;
+    border: none; border-radius: 0;
+    padding: 2px 1px; cursor: pointer;
+  }
+  .seg {
+    display: inline-flex; align-items: center;
+    background: #E7EBE2; border-radius: 8px; padding: 2px; gap: 2px;
+  }
+  .seg .tog { border: 0; border-radius: 6px; padding: 3px 10px 4px; color: var(--muted); }
+  .seg .tog:hover { color: var(--ink); }
+  .seg .tog.on {
+    background: var(--panel); color: var(--ink);
+    box-shadow: 0 1px 2px rgba(34,53,43,0.15), inset 0 0 0 1px rgba(34,53,43,0.05);
+  }
+  .filebtn { border-bottom: 2px solid var(--line); }
+  .filebtn:hover { border-bottom-color: var(--hot); }
+
+  select {
+    font: 500 14px 'Spline Sans Mono', monospace;
+    color: var(--ink); background: var(--panel);
+    border: 1px solid var(--line); border-radius: 6px;
+    padding: 4px 6px; max-width: 170px;
+  }
+  input[type="search"], input[type="text"] {
+    font: 400 14px 'Spline Sans Mono', monospace;
+    color: var(--ink); background: var(--panel);
+    border: 1px solid var(--line); border-radius: 6px;
+    padding: 5px 10px; width: 200px;
+  }
+  input::placeholder { color: var(--muted); }
+  :is(button, select, input, .colbtn):focus-visible { outline: 2px solid var(--hot); outline-offset: 2px; }
+  #matchInfo { font-size: 13px; color: var(--muted); min-width: 74px; }
+  #pinMatches { color: var(--hot); font-weight: 500; display: none; }
+  #pinMatches.show { display: inline; }
+
+  .combo { position: relative; }
+  #geneInput { width: 170px; }
+  .combolist {
+    position: absolute; top: calc(100% + 4px); left: 0; z-index: 20;
+    min-width: 220px; max-height: 320px; overflow-y: auto;
+    background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
+    box-shadow: 0 6px 18px rgba(34, 53, 43, 0.10);
+    padding: 3px;
+  }
+  .combolist button {
+    display: block; width: 100%; text-align: left;
+    font: 400 13.5px 'Spline Sans Mono', monospace;
+    padding: 5px 10px; border-radius: 5px;
+  }
+  .combolist button:hover, .combolist button.sel { background: var(--hot-soft); }
+  .combolist .dim { color: var(--muted); font-size: 12px; padding: 4px 10px 5px; }
+
+  #colstrip {
+    display: flex; align-items: baseline; gap: 18px;
+    padding: 4px 20px 10px;
+    overflow-x: auto; scrollbar-width: thin;
+    border-bottom: 1px solid var(--line);
+  }
+  #colstrip > span { color: var(--muted); font-size: 14px; flex-shrink: 0; }
+  .colbtn {
+    font: 500 15px 'Bricolage Grotesque', sans-serif;
+    color: var(--muted); white-space: nowrap;
+    border-bottom: 2px solid transparent; padding-bottom: 1px;
+  }
+  .colbtn:hover { color: var(--ink); }
+  .colbtn.on { color: var(--ink); border-bottom-color: var(--hot); }
+
+  #infobar {
+    display: flex; align-items: center; gap: 18px;
+    padding: 6px 20px 10px;
+    border-bottom: 1px solid var(--line);
+    font-size: 14px; color: var(--muted);
+  }
+  #counts { margin-left: auto; flex-shrink: 0; }
+  #labelInfo, #selfInfo { display: inline-flex; gap: 16px; }
+  .key { display: inline-flex; align-items: center; gap: 6px; }
+  #nLabelWrap { display: inline-flex; align-items: center; gap: 6px; }
+  #nLabel { width: 80px; accent-color: var(--hot); }
+  #nLabelVal { font-size: 13px; color: var(--muted); min-width: 18px; }
+  .key i { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
+
+  #stage { flex: 1; position: relative; min-height: 0; }
+  canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+  #overlay { pointer-events: none; }
+
+  #pins { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
+  .pinlabel {
+    position: absolute; pointer-events: auto; cursor: pointer;
+    font: 500 13.5px 'Bricolage Grotesque', sans-serif;
+    color: var(--ink); background: var(--panel);
+    border: 1px solid var(--ink); border-radius: 5px;
+    padding: 1px 7px 2px; white-space: nowrap;
+    transform: translate(9px, -21px);
+  }
+  .pinlabel:hover { background: var(--hot-soft); border-color: var(--hot); }
+
+  #tip {
+    position: absolute; pointer-events: none; display: none;
+    font: 400 14px 'Spline Sans Mono', monospace;
+    color: var(--paper); background: var(--ink);
+    border-radius: 6px; padding: 5px 9px 6px;
+    line-height: 1.5; white-space: nowrap; z-index: 5;
+  }
+  #tip b { font-weight: 500; color: #fff; }
+
+  #dropzone {
+    position: absolute; inset: 18px;
+    display: flex; align-items: center; justify-content: center;
+    border: 1.5px dashed var(--line); border-radius: 12px;
+    color: var(--muted); font-size: 15px; text-align: center;
+    line-height: 1.7; cursor: pointer; padding: 20px;
+  }
+  #dropzone.hover, #dropzone:hover { border-color: var(--hot); color: var(--ink); }
+  #dropzone strong { color: var(--ink); font-weight: 500; }
+
+  @media (max-width: 640px) {
+    header { gap: 8px 16px; padding: 10px 14px 8px; }
+    input[type="search"] { width: 140px; }
+  }
+  @media (prefers-reduced-motion: no-preference) {
+    .tog, .colbtn, .filebtn { transition: color .12s, border-color .12s; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>RankPlot</h1>
+  <div class="ctl" id="stateCtl" hidden><span>state</span><span id="stateBtns" class="seg"></span></div>
+  <div class="ctl" id="geneCtl" hidden><span>gene</span>
+    <div class="combo">
+      <input type="text" id="geneInput" placeholder="pick a gene" autocomplete="off" spellcheck="false">
+      <div id="geneList" class="combolist" hidden></div>
+    </div>
+  </div>
+  <button class="filebtn" id="openBtn">open a file</button>
+  <input type="file" id="fileInput" accept=".csv,.tsv,.txt" hidden>
+  <div class="ctl" id="nameCtl"><span>names</span><select id="nameSelect" disabled><option>—</option></select></div>
+  <div class="ctl">
+    <input type="search" id="search" placeholder="search guides" disabled>
+    <span id="matchInfo" class="mono"></span>
+    <button id="pinMatches">pin these</button>
+  </div>
+  <div class="ctl" id="poolCtl" hidden><span>guides</span><span class="seg">
+    <button class="tog on" data-g="pool" data-v="all">all</button>
+    <button class="tog" data-g="pool" data-v="active">active</button></span>
+  </div>
+  <div class="ctl" id="basisCtl"><span>rank by</span><span class="seg">
+    <button class="tog on" data-g="basis" data-v="signed">value</button>
+    <button class="tog" data-g="basis" data-v="abs">|value|</button></span>
+  </div>
+  <div class="ctl"><span>y axis</span><span class="seg">
+    <button class="tog" data-g="ymode" data-v="pct">percentile</button>
+    <button class="tog on" data-g="ymode" data-v="rank">raw rank</button></span>
+  </div>
+</header>
+
+<div id="colstrip" hidden><span>column</span><span id="cols" style="display:flex;gap:18px"></span></div>
+<div id="infobar" hidden><span id="labelInfo"></span><span id="selfInfo"></span>
+  <span id="counts" class="mono"></span>
+  <div class="ctl" id="labelCtl"><span>labels</span><span class="seg">
+    <button class="tog on" data-g="labels" data-v="top">top hits</button>
+    <button class="tog" data-g="labels" data-v="off">off</button></span>
+    <span id="nLabelWrap"><input type="range" id="nLabel" min="1" max="50" value="15"
+      title="how many top/bottom guides to mark"><span id="nLabelVal" class="mono">15</span></span>
+  </div>
+</div>
+
+<div id="stage">
+  <canvas id="main"></canvas>
+  <canvas id="overlay"></canvas>
+  <div id="pins"></div>
+  <div id="tip"></div>
+  <div id="dropzone" tabindex="0" role="button">
+    <div><strong>Drop a CSV or TSV</strong> — or click to choose.<br>
+    Ranks are computed right here in your browser; nothing uploads.</div>
+  </div>
+</div>
+
+<script>
+(function () {
+  // Catalog layout produced by the notebook's "Site Export" section:
+  //   data/manifest.json                     {states: {DE: {genes, files, n_guides, n_rank_universe}, ...}}
+  //   data/<STATE>/guides.csv                guide,target,active — fixed row order
+  //   data/<STATE>/genes/<GENE>.csv          coef,rank — rows align 1:1 with guides.csv
+  const MANIFEST_URL = 'data/manifest.json';
+
+  const S = {
+    rows: [], fields: [],
+    mode: 'generic',                  // 'generic' (dropped file) | 'catalog' (manifest gene)
+    nameCol: null, valueCol: null, rankField: null,
+    basis: 'signed', ymode: 'rank', ysrc: 'computed', pool: 'all', labels: 'top', nLabel: 15,
+    manifest: null, state: null, gene: null,
+    guideMeta: {},                    // state -> {guide:[], target:[], tlower:[], active:[]}
+    nRankUniverse: null,
+    q: '', pinned: new Set(),         // guide names — survive gene AND state switches
+    d: null,                          // current column data
+    t: d3.zoomIdentity,
+    hover: -1,
+  };
+  const M = { l: 84, r: 20, t: 54, b: 56 };
+
+  const $ = id => document.getElementById(id);
+  const stage = $('stage'), main = $('main'), over = $('overlay');
+  const mctx = main.getContext('2d'), octx = over.getContext('2d');
+  const tip = $('tip'), pinsBox = $('pins');
+  let W = 0, H = 0, sx = null, sy = null, qt = null;
+
+  const css = v => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+  const C = { ink: css('--ink'), muted: css('--muted'), line: css('--line'),
+              hot: css('--hot'), paper: css('--paper') };
+  const fmt = d3.format('.4~g'), fmtP = d3.format('.3f'), fmtI = d3.format(',');
+  // Mark palette, validated all-pairs for CVD + normal vision on this surface
+  // (dataviz validate_palette.js: worst pair ΔE 13.0 deutan / 16.3 normal — passes).
+  const COL = { up: '#e34948', down: '#2a78d6', self: '#4a3aa7' };
+  const esc = s => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');
+
+  // ---------- generic file loading ----------
+  const dz = $('dropzone'), fi = $('fileInput');
+  const pick = () => fi.click();
+  dz.addEventListener('click', pick);
+  $('openBtn').addEventListener('click', pick);
+  dz.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); pick(); } });
+  ['dragover','dragenter'].forEach(ev => document.addEventListener(ev, e => { e.preventDefault(); dz.classList.add('hover'); }));
+  ['dragleave','drop'].forEach(ev => document.addEventListener(ev, e => { e.preventDefault(); if (ev==='drop' && e.dataTransfer.files.length) loadFile(e.dataTransfer.files[0]); dz.classList.remove('hover'); }));
+  fi.addEventListener('change', () => fi.files.length && loadFile(fi.files[0]));
+
+  const parseOpts = { header: true, dynamicTyping: true, skipEmptyLines: true };
+
+  function loadFile(file) {
+    Papa.parse(file, { ...parseOpts,
+      complete: res => onParsed(res, file.name, 'generic'),
+      error: () => { dz.firstElementChild.innerHTML = 'That file could not be read — check it is CSV or TSV.'; }
+    });
+  }
+
+  function numFrac(f) {
+    let n = 0, t = 0;
+    for (const r of S.rows) { const v = r[f]; if (v == null || v === '') continue;
+      t++; if (typeof v === 'number' && isFinite(v)) n++; }
+    return t ? n / t : 0;
+  }
+
+  function onParsed(res, label, mode) {
+    if (!res.data.length) { dz.firstElementChild.innerHTML = 'No rows found in that file — try another.'; return; }
+    const wipePins = mode === 'generic' || S.mode === 'generic';
+    S.rows = res.data; S.fields = res.meta.fields || [];
+    S.mode = mode; S.dataset = label;
+    S.rankField = (S.fields.includes('rank') && numFrac('rank') > 0.5) ? 'rank' : null;
+    S.ysrc = S.rankField ? 'file' : 'computed';
+    if (wipePins) { S.pinned.clear(); pinsBox.innerHTML = ''; }
+    S.q = ''; $('search').value = '';
+
+    if (mode === 'catalog') {
+      S.nameCol = null; S.valueCol = S.fields.includes('coef') ? 'coef' : S.fields[0];
+      $('colstrip').hidden = true;
+      computeData(); resetView();
+    } else {
+      S.gene = null; $('geneInput').value = '';
+      S.nRankUniverse = null;
+      initColumns();               // calls computeData + resetView via setColumn
+    }
+    dz.style.display = 'none';
+    $('infobar').hidden = false;
+    $('search').disabled = false; $('nameSelect').disabled = false;
+    syncCtls();
+  }
+
+  function initColumns() {
+    const numeric = S.fields.filter(f => numFrac(f) > 0.8);
+    const namey = S.fields.filter(f => numFrac(f) < 0.5);
+    let best = null, bestU = 0;
+    for (const f of namey) {
+      const u = new Set(S.rows.slice(0, 2000).map(r => r[f])).size;
+      if (u > bestU) { bestU = u; best = f; }
+    }
+    S.nameCol = best;
+    const ns = $('nameSelect');
+    ns.innerHTML = '<option value="">(row number)</option>' +
+      S.fields.map(f => `<option${f===best?' selected':''}>${esc(f)}</option>`).join('');
+
+    const cols = $('cols');
+    cols.innerHTML = '';
+    numeric.forEach(f => {
+      const b = document.createElement('button');
+      b.className = 'colbtn'; b.textContent = f;
+      b.addEventListener('click', () => setColumn(f));
+      cols.appendChild(b);
+    });
+    $('colstrip').hidden = false;
+    setColumn(numeric.includes('coef') ? 'coef' : (numeric[0] || null));
+  }
+
+  function setColumn(col) {
+    if (!col) return;
+    S.valueCol = col;
+    document.querySelectorAll('.colbtn').forEach(b => b.classList.toggle('on', b.textContent === col));
+    computeData(); resetView();
+  }
+
+  // ---------- catalog (manifest) ----------
+  function loadManifest() {
+    fetch(MANIFEST_URL).then(r => { if (!r.ok) throw 0; return r.json(); }).then(m => {
+      if (!m.states || !Object.keys(m.states).length) return;
+      S.manifest = m;
+      const sb = $('stateBtns');
+      sb.innerHTML = '';
+      Object.keys(m.states).forEach((st, i) => {
+        const b = document.createElement('button');
+        b.className = 'tog' + (i === 0 ? ' on' : '');
+        b.dataset.g = 'state'; b.dataset.v = st; b.textContent = st;
+        sb.appendChild(b);
+      });
+      S.state = Object.keys(m.states)[0];
+      $('stateCtl').hidden = false; $('geneCtl').hidden = false;
+      bindToggles($('stateBtns'));
+      dz.firstElementChild.innerHTML =
+        '<strong>Pick a state and gene above</strong> — or drop any CSV.<br>' +
+        'Per-gene coefficient files load straight from this site; nothing uploads.';
+      const st0 = m.states[S.state];
+      const g0 = (st0.featured && st0.featured[0]) || st0.genes[0];
+      if (g0) { $('geneInput').value = g0; loadGene(g0); }
+    }).catch(() => {
+      if (location.protocol === 'file:') {
+        dz.firstElementChild.innerHTML =
+          '<strong>Drop a CSV or TSV</strong> — or click to choose.<br>' +
+          'Nothing uploads.<br><small>(the gene catalog loads once this page is served over HTTP)</small>';
+      }
+    });
+  }
+
+  function guidesFor(state) {
+    if (S.guideMeta[state]) return Promise.resolve(S.guideMeta[state]);
+    return new Promise(resolve => {
+      Papa.parse(`data/${encodeURIComponent(state)}/guides.csv`, { ...parseOpts, download: true,
+        complete: res => {
+          const guide = [], target = [], tlower = [], active = [];
+          for (const r of res.data) {
+            guide.push(String(r.guide));
+            const tg = r.target == null ? '' : String(r.target);
+            target.push(tg); tlower.push(tg.toLowerCase());
+            active.push(r.active ? 1 : 0);
+          }
+          resolve(S.guideMeta[state] = { guide, target, tlower, active });
+        },
+        error: () => resolve(null)
+      });
+    });
+  }
+
+  function loadGene(gene) {
+    const st = S.manifest.states[S.state];
+    const file = (st.files && st.files[gene]) || gene + '.csv';
+    S.gene = gene;
+    S.nRankUniverse = st.n_rank_universe || null;
+    guidesFor(S.state).then(() => {
+      Papa.parse(`data/${encodeURIComponent(S.state)}/genes/${encodeURIComponent(file)}`,
+        { ...parseOpts, download: true,
+          complete: res => onParsed(res, `${S.state} · ${gene}`, 'catalog'),
+          error: () => { $('infobar').hidden = false;
+                         $('counts').textContent = `could not load ${file}`; } });
+    });
+  }
+
+  function switchState(st) {
+    S.state = st;
+    const genes = S.manifest.states[st].genes;
+    if (S.gene && genes.includes(S.gene)) loadGene(S.gene);
+    else {
+      S.gene = null; $('geneInput').value = '';
+      S.d = null; mctx.clearRect(0, 0, W, H); octx.clearRect(0, 0, W, H);
+      $('infobar').hidden = true;
+      dz.style.display = '';
+    }
+  }
+
+  // gene combobox
+  const gInput = $('geneInput'), gList = $('geneList');
+  let gSel = 0;
+  function geneMatches(q) {
+    const genes = S.manifest ? S.manifest.states[S.state].genes : [];
+    if (!q) return genes.slice(0, 24);
+    const ql = q.toLowerCase();
+    const pre = [], sub = [];
+    for (const g of genes) {
+      const gl = g.toLowerCase();
+      if (gl.startsWith(ql)) pre.push(g);
+      else if (gl.includes(ql)) sub.push(g);
+      if (pre.length >= 24) break;
+    }
+    return pre.concat(sub).slice(0, 24);
+  }
+  function renderGeneList() {
+    const q = gInput.value.trim();
+    const m = geneMatches(q);
+    gSel = Math.min(gSel, Math.max(0, m.length - 1));
+    gList.innerHTML = m.map((g, i) =>
+      `<button data-gene="${esc(g)}"${i===gSel?' class="sel"':''}>${esc(g)}</button>`).join('') +
+      (m.length ? '' : '<div class="dim">no matching gene</div>');
+    gList.hidden = false;
+    gList.querySelectorAll('button').forEach(b =>
+      b.addEventListener('pointerdown', e => { e.preventDefault(); pickGene(b.dataset.gene); }));
+  }
+  function pickGene(g) {
+    gInput.value = g; gList.hidden = true;
+    loadGene(g);
+  }
+  gInput.addEventListener('input', () => { gSel = 0; renderGeneList(); });
+  gInput.addEventListener('focus', renderGeneList);
+  gInput.addEventListener('blur', () => setTimeout(() => { gList.hidden = true; }, 120));
+  gInput.addEventListener('keydown', e => {
+    const btns = gList.querySelectorAll('button[data-gene]');
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault();
+      gSel = Math.max(0, Math.min(btns.length - 1, gSel + (e.key === 'ArrowDown' ? 1 : -1)));
+      renderGeneList();
+    } else if (e.key === 'Enter') {
+      if (btns.length) pickGene(btns[Math.min(gSel, btns.length - 1)].dataset.gene);
+    } else if (e.key === 'Escape') { gList.hidden = true; }
+  });
+
+  // ---------- data / ranking ----------
+  function tiedRanks(v) {                     // 0-based, ties averaged
+    const idx = d3.range(v.length).sort((a,b) => v[a]-v[b]);
+    const r = new Array(v.length); let i = 0;
+    while (i < idx.length) {
+      let j = i; while (j+1 < idx.length && v[idx[j+1]] === v[idx[i]]) j++;
+      const avg = (i+j)/2; for (let k=i;k<=j;k++) r[idx[k]] = avg;
+      i = j+1;
+    }
+    return r;
+  }
+
+  const truthy = v => !(v === 0 || v === false || v == null ||
+                        String(v).toLowerCase() === 'false' || v === '0');
+
+  function computeData() {
+    const meta = S.mode === 'catalog' ? S.guideMeta[S.state] : null;
+    const useFile = S.ysrc === 'file' && S.rankField;
+    const idx = [], x = [], fr = [], names = [], target = [], activeA = [];
+    S.rows.forEach((r, i) => {
+      const v = r[S.valueCol];
+      if (typeof v !== 'number' || !isFinite(v)) return;
+      let rv = null;
+      if (useFile) {
+        rv = r[S.rankField];
+        if (typeof rv !== 'number' || !isFinite(rv)) return;
+      }
+      const act = meta ? meta.active[i]
+                       : ('active' in r && r.active != null ? (truthy(r.active) ? 1 : 0) : null);
+      if (S.pool === 'active' && act === 0) return;
+      idx.push(i); x.push(v); fr.push(rv);
+      names.push(meta ? meta.guide[i]
+                      : (S.nameCol ? String(r[S.nameCol]) : 'row ' + (i + 1)));
+      target.push(meta ? meta.target[i]
+                       : (r.target != null ? String(r.target) : null));
+      activeA.push(act);
+    });
+
+    const n = x.length;
+    let r0, rank, pct, nU = null;
+    if (useFile) {
+      r0 = fr;
+      nU = S.nRankUniverse || (d3.max(fr) + 1) || 1;
+      pct = r0.map(r => nU > 1 ? r / (nU - 1) : 0.5);
+      rank = r0;
+    } else {
+      const basisV = S.basis === 'abs' ? x.map(Math.abs) : x;
+      r0 = tiedRanks(basisV);
+      pct = r0.map(r => n > 1 ? r / (n - 1) : 0.5);
+      rank = r0.map(r => r + 1);
+    }
+    const self = new Uint8Array(n);
+    if (S.mode === 'catalog' && S.gene) {
+      for (let k = 0; k < n; k++)
+        if (target[k] && target[k].split('|').includes(S.gene)) self[k] = 1;
+    }
+    S.d = { idx, x, names, pct, rank, n, target, active: activeA, self,
+            useFile, nU,
+            lower: names.map(s => s.toLowerCase()),
+            tlower: target.map(s => s ? s.toLowerCase() : ''),
+            nameToIdx: new Map(names.map((nm, p) => [nm, p])) };
+    computeHits();
+    applySearch();
+  }
+
+  // top/bottom hits, notebook-style: by rank, most-up first; slider-adjustable
+  function computeHits() {
+    const d = S.d; if (!d) return;
+    const nl = Math.min(S.nLabel, d.n);
+    const ord = d3.range(d.n).sort((a, b) => d.rank[a] - d.rank[b]);
+    const upFirst = d.useFile ? ord : ord.slice().reverse();
+    d.topIdx = upFirst.slice(0, nl);
+    d.botIdx = upFirst.slice(-nl).filter(i => !d.topIdx.includes(i));
+    d.topSet = new Set(d.topIdx);
+    d.botSet = new Set(d.botIdx);
+  }
+
+  const nLabelEl = $('nLabel');
+  nLabelEl.addEventListener('input', () => {
+    S.nLabel = +nLabelEl.value;
+    $('nLabelVal').textContent = nLabelEl.value;
+    if (S.d) { computeHits(); applySearch(); drawAll(); }
+  });
+
+  // ---------- layout / scales ----------
+  function resize() {
+    const dpr = window.devicePixelRatio || 1;
+    W = stage.clientWidth; H = stage.clientHeight;
+    for (const c of [main, over]) {
+      c.width = W * dpr; c.height = H * dpr;
+      c.getContext('2d').setTransform(dpr, 0, 0, dpr, 0, 0);
+    }
+    if (S.d) { buildScales(); drawAll(); }
+  }
+  new ResizeObserver(resize).observe(stage);
+
+  function buildScales() {
+    const d = S.d;
+    const xe = d3.extent(d.x);
+    let x0, x1;
+    if (xe[0] < 0 && xe[1] > 0) {
+      // coef axis centred on 0, with notebook-style side padding for the label columns
+      const A = Math.max(-xe[0], xe[1]) || 1;
+      x0 = -1.55 * A; x1 = 1.55 * A;
+      d.labA = 1.10 * A;                     // label-column anchor (data units), ± sides
+    } else {
+      const pad = (xe[1] - xe[0] || 1) * 0.04;
+      x0 = xe[0] - pad; x1 = xe[1] + pad;
+      d.labA = null;
+    }
+    sx = d3.scaleLinear().domain([x0, x1]).range([M.l, W-M.r]);
+    const ys = S.ymode === 'pct' ? d.pct : d.rank;
+    let ye;
+    if (d.useFile) {                          // 0 = most up-regulated -> top (notebook orientation)
+      ye = S.ymode === 'pct' ? [1.03, -0.03] : [d.nU * 1.03, -d.nU * 0.03];
+    } else {
+      ye = S.ymode === 'pct' ? [-0.03, 1.03] : [1 - d.n*0.03, d.n + d.n*0.03];
+    }
+    sy = d3.scaleLinear().domain(ye).range([H-M.b, M.t]);
+    d.bx = d.x.map(sx);
+    d.by = ys.map(sy);
+    qt = d3.quadtree().x(p => d.bx[p]).y(p => d.by[p]).addAll(d3.range(d.n));
+  }
+
+  function resetView() { buildScales(); S.t = d3.zoomIdentity; d3.select(main).call(zoom.transform, d3.zoomIdentity); drawAll(); }
+
+  // ---------- zoom ----------
+  const zoom = d3.zoom().scaleExtent([0.7, 60])
+    .on('zoom', e => { S.t = e.transform; drawAll(); });
+  d3.select(main).call(zoom).on('dblclick.zoom', null);
+  main.addEventListener('dblclick', () => resetView());
+
+  // ---------- search ----------
+  const searchEl = $('search');
+  searchEl.addEventListener('input', () => { S.q = searchEl.value.trim().toLowerCase(); applySearch(); drawAll(); });
+  searchEl.addEventListener('keydown', e => { if (e.key === 'Escape') { searchEl.value=''; S.q=''; applySearch(); drawAll(); } });
+
+  function applySearch() {
+    const d = S.d; if (!d) return;
+    d.match = null; let m = 0;
+    if (S.q) {
+      d.match = new Uint8Array(d.n);
+      for (let i = 0; i < d.n; i++)
+        if (d.lower[i].includes(S.q) || (d.tlower[i] && d.tlower[i].includes(S.q))) { d.match[i] = 1; m++; }
+    }
+    $('matchInfo').textContent = S.q ? fmtI(m) + ' match' : '';
+    $('pinMatches').classList.toggle('show', S.q && m > 0 && m <= 15);
+    S.matchCount = m;
+    let selfN = 0; for (let i = 0; i < d.n; i++) selfN += d.self[i];
+    const key = (c, txt) => `<span class="key"><i style="background:${c}"></i>${txt}</span>`;
+    $('selfInfo').innerHTML = selfN
+      ? key(COL.self, `${selfN} guide${selfN > 1 ? 's' : ''} target ${esc(S.gene)}`) : '';
+    $('labelInfo').innerHTML = (S.labels === 'top' && !S.q)
+      ? key(COL.up, `top ${d.topIdx.length} upregulating guides`) +
+        key(COL.down, `top ${d.botIdx.length} downregulating guides`) : '';
+    $('nLabelWrap').hidden = S.labels !== 'top';
+    $('counts').textContent = S.mode === 'catalog'
+      ? (S.pool === 'active' ? 'active guides only' : '')
+      : (S.dataset ? S.dataset + ' · ' : '') + fmtI(d.n) + ' points' +
+        (S.pool === 'active' ? ' · active only' : '');
+  }
+
+  $('pinMatches').addEventListener('click', () => {
+    const d = S.d;
+    for (let i = 0; i < d.n; i++) if (d.match[i]) S.pinned.add(d.names[i]);
+    drawOverlay();
+  });
+
+  // ---------- hover & pin ----------
+  function findAt(mx, my) {
+    if (!qt) return -1;
+    const [bx, by] = S.t.invert([mx, my]);
+    const p = qt.find(bx, by, 12 / S.t.k);
+    return p === undefined ? -1 : p;
+  }
+  main.addEventListener('mousemove', e => {
+    const r = main.getBoundingClientRect();
+    const i = findAt(e.clientX - r.left, e.clientY - r.top);
+    if (i !== S.hover) { S.hover = i; drawOverlay(); }
+    if (i >= 0) {
+      const d = S.d;
+      const rankLine = d.useFile
+        ? (S.ymode === 'pct' ? 'pct ' + fmtP(d.pct[i]) : 'rank ' + fmtI(d.rank[i]) + ' / ' + fmtI(d.nU))
+        : (S.ymode === 'pct' ? 'pct ' + fmtP(d.pct[i]) : 'rank ' + fmtI(d.rank[i]));
+      tip.innerHTML = '<b>' + esc(d.names[i]) + '</b><br>' +
+        esc(S.valueCol) + ' <b>' + fmt(d.x[i]) + '</b><br>' + rankLine +
+        (d.target[i] ? '<br>target ' + esc(d.target[i]) +
+          (d.active[i] != null ? (d.active[i] ? ' · active' : ' · inactive') : '') : '');
+      const px = S.t.applyX(d.bx[i]), py = S.t.applyY(d.by[i]);
+      tip.style.display = 'block';
+      const tw = tip.offsetWidth;
+      tip.style.left = Math.min(Math.max(px + 14, 4), W - tw - 4) + 'px';
+      tip.style.top = Math.max(py - 14 - tip.offsetHeight, 4) + 'px';
+      main.style.cursor = 'pointer';
+    } else { tip.style.display = 'none'; main.style.cursor = ''; }
+  });
+  main.addEventListener('mouseleave', () => { S.hover = -1; tip.style.display = 'none'; drawOverlay(); });
+  main.addEventListener('click', e => {
+    const r = main.getBoundingClientRect();
+    const i = findAt(e.clientX - r.left, e.clientY - r.top);
+    if (i < 0) return;
+    const nm = S.d.names[i];
+    S.pinned.has(nm) ? S.pinned.delete(nm) : S.pinned.add(nm);
+    drawOverlay();
+  });
+
+  // ---------- toggles ----------
+  function bindToggles(root) {
+    root.querySelectorAll('.tog').forEach(b => b.addEventListener('click', () => {
+      const g = b.dataset.g, v = b.dataset.v;
+      if (S[g] === v) return;
+      S[g] = v;
+      document.querySelectorAll(`.tog[data-g="${g}"]`).forEach(x => x.classList.toggle('on', x.dataset.v === v));
+      if (g === 'state') { switchState(v); return; }
+      if (g === 'labels') { if (S.d) { applySearch(); drawAll(); } return; }
+      syncCtls();
+      if (S.d) { computeData(); resetView(); }
+    }));
+  }
+  bindToggles(document);
+  $('nameSelect').addEventListener('change', e => {
+    S.nameCol = e.target.value || null;
+    if (S.d) { computeData(); drawAll(); }
+  });
+
+  function syncCtls() {
+    // "rank by" (value vs |value|) only applies when we compute ranks ourselves,
+    // i.e. a dropped file with no rank column; a rank column always wins.
+    $('basisCtl').hidden = !!S.rankField;
+    $('poolCtl').hidden = !(S.mode === 'catalog' || S.fields.includes('active'));
+    $('nameCtl').hidden = S.mode === 'catalog';
+  }
+
+  // ---------- drawing ----------
+  function drawAll() { drawMain(); drawOverlay(); }
+
+  function drawMain() {
+    if (!S.d || !sx) return;
+    const d = S.d, t = S.t;
+    mctx.clearRect(0, 0, W, H);
+
+    const zx = t.rescaleX(sx), zy = t.rescaleY(sy);
+
+    // grid + axes
+    mctx.strokeStyle = C.line; mctx.lineWidth = 1;
+    mctx.font = '14px "Spline Sans Mono", monospace';
+    mctx.fillStyle = C.muted;
+    const yt = S.ymode === 'pct' ? [0, .25, .5, .75, 1].filter(v => zy(v) > M.t-2 && zy(v) < H-M.b+2) : zy.ticks(5);
+    mctx.textAlign = 'right'; mctx.textBaseline = 'middle';
+    for (const v of yt) {
+      const y = zy(v);
+      mctx.beginPath(); mctx.moveTo(M.l, y); mctx.lineTo(W - M.r, y); mctx.stroke();
+      mctx.fillText(S.ymode === 'pct' ? String(v) : fmtI(v), M.l - 8, y);
+    }
+    mctx.textAlign = 'center'; mctx.textBaseline = 'top';
+    for (const v of zx.ticks(6)) {
+      const x = zx(v);
+      if (x < M.l || x > W - M.r) continue;
+      mctx.fillText(fmt(v), x, H - M.b + 8);
+    }
+    // zero line
+    const zxi = zx(0);
+    if (zxi > M.l && zxi < W - M.r) {
+      mctx.strokeStyle = '#C7D0C3';
+      mctx.beginPath(); mctx.moveTo(zxi, M.t); mctx.lineTo(zxi, H - M.b); mctx.stroke();
+    }
+    // axis titles
+    mctx.fillStyle = C.muted; mctx.font = '16px "Bricolage Grotesque", sans-serif';
+    mctx.textAlign = 'center'; mctx.textBaseline = 'alphabetic';
+    const xlab = S.mode === 'catalog' ? 'Regression coef' : S.valueCol;
+    mctx.fillText(xlab, M.l + (W - M.l - M.r)/2, H - 8);
+    const ptitle = S.mode === 'catalog' ? `${S.gene} — ${S.state}` : (S.dataset || '');
+    if (ptitle) {
+      mctx.fillStyle = C.ink; mctx.font = '600 20px "Bricolage Grotesque", sans-serif';
+      mctx.fillText(ptitle, M.l + (W - M.l - M.r)/2, 34);
+      mctx.fillStyle = C.muted; mctx.font = '16px "Bricolage Grotesque", sans-serif';
+    }
+    mctx.save();
+    mctx.translate(16, M.t + (H - M.t - M.b)/2); mctx.rotate(-Math.PI/2);
+    const ylab = d.useFile
+      ? (S.ymode === 'pct' ? 'Gene-rank percentile (0 = most upregulated)'
+                           : 'Gene rank within guide (0 = most upregulated)')
+      : (S.ymode === 'pct' ? 'Percentile among guides' : 'Rank among guides (1 = lowest coef)');
+    mctx.fillText(ylab, 0, 0);
+    mctx.restore();
+
+    // clip plot area for points
+    mctx.save();
+    mctx.beginPath(); mctx.rect(M.l, M.t, W - M.l - M.r, H - M.t - M.b); mctx.clip();
+
+    const searching = !!d.match;
+    const labeling = S.labels === 'top' && !searching;
+    const baseCol = searching ? 'rgba(34,53,43,0.10)' : 'rgba(34,53,43,0.48)';
+    const R = 2.6, TAU = Math.PI * 2;
+
+    mctx.fillStyle = baseCol;
+    mctx.beginPath();
+    for (let i = 0; i < d.n; i++) {
+      if (searching ? d.match[i]
+                    : (d.self[i] || (labeling && (d.topSet.has(i) || d.botSet.has(i))))) continue;
+      const x = t.x + t.k * d.bx[i], y = t.y + t.k * d.by[i];
+      if (x < M.l-4 || x > W-M.r+4 || y < M.t-4 || y > H-M.b+4) continue;
+      mctx.moveTo(x + R, y); mctx.arc(x, y, R, 0, TAU);
+    }
+    mctx.fill();
+
+    // emphasized marks: filled dot + 2px surface ring so they read over the cloud
+    const dotPass = (idxs, col, r, skip) => {
+      mctx.fillStyle = col; mctx.strokeStyle = C.paper; mctx.lineWidth = 2;
+      mctx.beginPath();
+      for (const i of idxs) {
+        if (skip && skip(i)) continue;
+        const x = t.x + t.k * d.bx[i], y = t.y + t.k * d.by[i];
+        if (x < M.l-4 || x > W-M.r+4 || y < M.t-4 || y > H-M.b+4) continue;
+        mctx.moveTo(x + r, y); mctx.arc(x, y, r, 0, TAU);
+      }
+      mctx.stroke(); mctx.fill();
+    };
+    if (labeling) {
+      dotPass(d.topIdx, COL.up, 3.8, i => d.self[i]);
+      dotPass(d.botIdx, COL.down, 3.8, i => d.self[i]);
+    }
+    if (searching) {
+      const m = []; for (let i = 0; i < d.n; i++) if (d.match[i]) m.push(i);
+      dotPass(m, C.hot, 3.4);
+    } else {
+      const sf = []; for (let i = 0; i < d.n; i++) if (d.self[i]) sf.push(i);
+      dotPass(sf, COL.self, 4.25);
+    }
+    mctx.restore();
+  }
+
+  function drawOverlay() {
+    octx.clearRect(0, 0, W, H);
+    if (!S.d || !sx) return;
+    const d = S.d, t = S.t;
+    const seen = [];
+
+    octx.save();
+    octx.beginPath(); octx.rect(M.l - 6, M.t - 6, W - M.l - M.r + 12, H - M.t - M.b + 12); octx.clip();
+
+    if (S.labels === 'top' && !d.match) drawAutoLabels(d, t);
+
+    // pinned rings + leaders (pins are guide names, resolved against the current view)
+    for (const nm of S.pinned) {
+      const i = d.nameToIdx.get(nm);
+      if (i === undefined) continue;             // guide absent from this state / filter / column
+      const x = t.applyX(d.bx[i]), y = t.applyY(d.by[i]);
+      octx.strokeStyle = C.ink; octx.lineWidth = 1.5;
+      octx.beginPath(); octx.arc(x, y, 6, 0, Math.PI*2); octx.stroke();
+      octx.beginPath(); octx.moveTo(x + 4.5, y - 4.5); octx.lineTo(x + 9, y - 9); octx.stroke();
+      seen.push({ name: nm, x, y });
+    }
+    // hover ring
+    if (S.hover >= 0) {
+      const x = t.applyX(d.bx[S.hover]), y = t.applyY(d.by[S.hover]);
+      octx.strokeStyle = C.hot; octx.lineWidth = 1.5;
+      octx.beginPath(); octx.arc(x, y, 5.5, 0, Math.PI*2); octx.stroke();
+    }
+    octx.restore();
+    syncPinLabels(seen);
+  }
+
+  // spread label y-positions in a band that hugs the points' own range (short leaders)
+  // but is widened just enough that labels never overlap — the notebook's _stack_column
+  function stackYs(ptYs, yMin, yMax, gap) {
+    const n = ptYs.length;
+    if (!n) return [];
+    const lo = ptYs[0], hi = ptYs[n - 1], ctr = (lo + hi) / 2;
+    const half = Math.max((hi - lo) / 2, (n - 1) * gap / 2);
+    let a = ctr - half, b = ctr + half;
+    if (a < yMin) { b += yMin - a; a = yMin; }
+    if (b > yMax) { a -= b - yMax; b = yMax; }
+    a = Math.max(a, yMin); b = Math.min(b, yMax);
+    return n === 1 ? [(a + b) / 2] : ptYs.map((_, k) => a + (b - a) * k / (n - 1));
+  }
+
+  function drawAutoLabels(d, t) {
+    const vis = i => {
+      const x = t.applyX(d.bx[i]), y = t.applyY(d.by[i]);
+      return (x >= M.l - 4 && x <= W - M.r + 4 && y >= M.t - 4 && y <= H - M.b + 4)
+        ? { i, x, y } : null;
+    };
+    const all = d.topIdx.concat(d.botIdx).map(vis).filter(Boolean);
+    if (!all.length) return;
+    octx.font = '500 13.5px "Bricolage Grotesque", sans-serif';
+    // Label columns anchored just outside the data (notebook: xmax + 0.10*xr), so leaders
+    // stay short; they track the zoom and clamp to the plot edges. Without a centred axis
+    // (one-signed data) fall back to the fixed plot edges.
+    const clampX = v => Math.max(M.l + 6, Math.min(W - M.r - 6, v));
+    const nbStyle = d.labA != null;
+    const axR = clampX(nbStyle ? t.applyX(sx(d.labA)) : W - M.r - 6);
+    const axL = clampX(nbStyle ? t.applyX(sx(-d.labA)) : M.l + 6);
+    const sides = [
+      { pts: all.filter(p => d.x[p.i] >= 0), ax: axR, align: nbStyle ? 'left' : 'right', dir: -1 },
+      { pts: all.filter(p => d.x[p.i] < 0),  ax: axL, align: nbStyle ? 'right' : 'left', dir: 1 },
+    ];
+    for (const s of sides) {
+      s.pts.sort((a, b) => a.y - b.y);
+      const ys = stackYs(s.pts.map(p => p.y), M.t + 10, H - M.b - 12, 18);
+      s.pts.forEach((p, k) => {
+        const name = d.names[p.i], ly = ys[k];
+        const ex = nbStyle ? s.ax + s.dir * 3
+                           : s.ax + s.dir * (octx.measureText(name).width + 3);
+        octx.strokeStyle = 'rgba(34,53,43,0.28)'; octx.lineWidth = 0.7;
+        octx.beginPath(); octx.moveTo(p.x, p.y); octx.lineTo(ex, ly); octx.stroke();
+        octx.fillStyle = C.ink;
+        octx.textAlign = s.align; octx.textBaseline = 'middle';
+        octx.fillText(name, s.ax, ly);
+      });
+    }
+  }
+
+  function syncPinLabels(seen) {
+    const want = new Set(seen.map(s => s.name));
+    for (const el of [...pinsBox.children]) {
+      if (!want.has(el.dataset.name)) el.remove();
+    }
+    for (const s of seen) {
+      let el = [...pinsBox.children].find(e => e.dataset.name === s.name);
+      if (!el) {
+        el = document.createElement('div');
+        el.className = 'pinlabel'; el.dataset.name = s.name;
+        el.title = 'unpin';
+        el.addEventListener('click', () => { S.pinned.delete(s.name); drawOverlay(); });
+        pinsBox.appendChild(el);
+      }
+      if (el.textContent !== s.name) el.textContent = s.name;
+      const off = s.x > W - 130;                 // flip near right edge
+      el.style.transform = off ? 'translate(-100%, -21px)' : 'translate(9px, -21px)';
+      el.style.left = (off ? s.x - 9 : s.x) + 'px';
+      el.style.top = s.y + 'px';
+      el.style.display = (s.x < M.l - 8 || s.x > W - M.r + 8 || s.y < M.t - 8 || s.y > H - M.b + 8) ? 'none' : '';
+    }
+  }
+
+  resize();
+  loadManifest();
+})();
+</script>
+</body>
+</html>
