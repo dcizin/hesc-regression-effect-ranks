@@ -89,7 +89,7 @@
   }
   #pinMatches.show { visibility: visible; }
   #pinMatches:hover { background: var(--hot); color: var(--panel); }
-  #search.has-pin { padding-right: 86px; }
+  #search.has-pin { padding-right: 100px; }
 
   .combo { position: relative; }
   #geneInput { width: 170px; }
@@ -836,6 +836,13 @@
     }
     $('matchInfo').textContent = S.q ? fmtI(m) + ' match' : '';
     const pinnable = S.q && m > 0 && m <= 15;
+    let allPinned = false;
+    if (pinnable) {
+      allPinned = true;
+      for (let i = 0; i < d.n; i++)
+        if (d.match[i] && !S.pinned.has(d.names[i])) { allPinned = false; break; }
+    }
+    $('pinMatches').textContent = allPinned ? 'unpin these' : 'pin these';
     $('pinMatches').classList.toggle('show', pinnable);
     $('search').classList.toggle('has-pin', !!pinnable);
     S.matchCount = m;
@@ -855,12 +862,18 @@
 
   $('clearPins').addEventListener('click', () => {
     S.pinned.clear();
+    applySearch();
     drawOverlay();
   });
 
   $('pinMatches').addEventListener('click', () => {
     const d = S.d;
-    for (let i = 0; i < d.n; i++) if (d.match[i]) S.pinned.add(d.names[i]);
+    if (!d || !d.match) return;
+    const names = [];
+    for (let i = 0; i < d.n; i++) if (d.match[i]) names.push(d.names[i]);
+    const allPinned = names.length > 0 && names.every(nm => S.pinned.has(nm));
+    for (const nm of names) allPinned ? S.pinned.delete(nm) : S.pinned.add(nm);
+    applySearch();                       // flip the pin/unpin label
     drawOverlay();
   });
 
@@ -1195,6 +1208,7 @@
       el.title = s.search ? 'pin this guide' : 'unpin';
       el.onclick = () => {
         if (s.search) S.pinned.add(s.name); else S.pinned.delete(s.name);
+        applySearch();
         drawOverlay();
       };
       if (el.textContent !== s.name) el.textContent = s.name;
