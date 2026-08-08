@@ -36,7 +36,7 @@
     padding: 12px 20px 10px;
   }
   .hrow { display: flex; align-items: center; flex-wrap: wrap; gap: 10px 22px; }
-  header h1 { font-size: 22px; font-weight: 600; letter-spacing: -0.02em; margin-right: 4px; }
+  header h1 { font-size: 22px; font-weight: 600; letter-spacing: -0.02em; }
   .ctl { display: flex; align-items: center; gap: 8px; }
   .ctl > span { color: var(--muted); font-size: 14px; }
   /* the action centre: experiment / gene / guide lead the header */
@@ -218,8 +218,8 @@
 <body>
 
 <header>
+  <h1>hESC Regression Effect Ranks</h1>
   <div class="hrow">
-    <h1>hESC Regression Effect Ranks</h1>
     <div class="ctl primary" id="stateCtl" hidden><span>experiment</span><span id="stateBtns" class="seg"></span></div>
     <div class="ctl primary" id="geneCtl" hidden><span>gene</span>
       <div class="combo">
@@ -227,29 +227,26 @@
         <div id="geneList" class="combolist" hidden></div>
       </div>
     </div>
-    <div class="ctl primary"><span>guide</span>
+    <div class="ctl primary"><span>guides</span>
       <div class="combo">
         <input type="search" id="search" placeholder="search guides" disabled>
         <button id="pinMatches">pin these</button>
         <div id="guideList" class="combolist" hidden></div>
       </div>
+      <span class="seg" id="poolCtl" hidden>
+        <button class="tog on" data-g="pool" data-v="all">all</button>
+        <button class="tog" data-g="pool" data-v="active">active</button></span>
       <span id="matchInfo" class="mono"></span>
-    </div>
-    <button id="helpBtn" title="How this data was made" aria-label="How this data was made">?</button>
-  </div>
-  <div class="hrow">
-    <div class="ctl" id="poolCtl" hidden><span>guides</span><span class="seg">
-      <button class="tog on" data-g="pool" data-v="all">all</button>
-      <button class="tog" data-g="pool" data-v="active">active</button></span>
-    </div>
-    <div class="ctl" id="basisCtl"><span>rank by</span><span class="seg">
-      <button class="tog on" data-g="basis" data-v="signed">value</button>
-      <button class="tog" data-g="basis" data-v="abs">|value|</button></span>
     </div>
     <div class="ctl"><span>y axis</span><span class="seg">
       <button class="tog" data-g="ymode" data-v="pct">percentile</button>
       <button class="tog on" data-g="ymode" data-v="rank">raw rank</button></span>
     </div>
+    <div class="ctl" id="basisCtl" hidden><span>rank by</span><span class="seg">
+      <button class="tog on" data-g="basis" data-v="signed">value</button>
+      <button class="tog" data-g="basis" data-v="abs">|value|</button></span>
+    </div>
+    <button id="helpBtn" title="How this data was made" aria-label="How this data was made">?</button>
   </div>
 </header>
 
@@ -718,31 +715,53 @@
 
   // ---------- search ----------
   const searchEl = $('search'), guideListEl = $('guideList');
-  let sSel = 0;
+  let sSel = 0, gdListKey = null;    // state|pool the guide-list DOM currently holds
 
-  function markSSel(i) {
+  function markSSel(i, scrollMode) {
     const btns = guideListEl.children;
     if (!btns.length) return;
     sSel = Math.max(0, Math.min(btns.length - 1, i));
     const old = guideListEl.querySelector('.sel');
     if (old) old.classList.remove('sel');
     btns[sSel].classList.add('sel');
-    btns[sSel].scrollIntoView({ block: 'nearest' });
+    if (scrollMode) btns[sSel].scrollIntoView({ block: scrollMode });
   }
 
-  // same styled dropdown as the gene picker: guides matching the query by name or target
-  function renderGuideList() {
+  // gene-style dropdown: the FULL guide list in the current all/active scope, always
+  // shown scrollable; typing jumps to the first match (by name, then target)
+  function buildGuideList() {
     const meta = S.guideMeta[S.state];
-    if (!meta || !S.q || S.mode !== 'catalog') { guideListEl.hidden = true; return; }
-    const out = [];
-    for (let i = 0; i < meta.guide.length && out.length < 200; i++) {
-      if (meta.guide[i].toLowerCase().includes(S.q) || meta.tlower[i].includes(S.q))
-        out.push(meta.guide[i]);
+    const parts = [];
+    for (let i = 0; i < meta.guide.length; i++) {
+      if (S.pool === 'active' && !meta.active[i]) continue;
+      parts.push(`<button data-guide="${esc(meta.guide[i])}" data-i="${i}">${esc(meta.guide[i])}</button>`);
     }
-    if (!out.length) { guideListEl.hidden = true; return; }
-    guideListEl.innerHTML = out.map(g => `<button data-guide="${esc(g)}">${esc(g)}</button>`).join('');
+    guideListEl.innerHTML = parts.join('');
+    gdListKey = S.state + '|' + S.pool;
+  }
+
+  function jumpGuide(q) {
+    const btns = guideListEl.children;
+    if (!btns.length) return;
+    if (!q) { markSSel(0, 'nearest'); return; }
+    const meta = S.guideMeta[S.state];
+    let pre = -1, sub = -1, tgt = -1;
+    for (let k = 0; k < btns.length; k++) {
+      const gl = btns[k].dataset.guide.toLowerCase();
+      if (gl.startsWith(q)) { pre = k; break; }
+      if (sub < 0 && gl.includes(q)) sub = k;
+      if (tgt < 0 && meta.tlower[+btns[k].dataset.i].includes(q)) tgt = k;
+    }
+    const k = pre >= 0 ? pre : (sub >= 0 ? sub : tgt);
+    if (k >= 0) markSSel(k, 'center');
+  }
+
+  function openGuideList() {
+    if (S.mode !== 'catalog' || !S.guideMeta[S.state]) return;
+    if (gdListKey !== S.state + '|' + S.pool) buildGuideList();
+    if (!guideListEl.children.length) return;
     guideListEl.hidden = false;
-    markSSel(0);
+    jumpGuide(S.q);
   }
 
   function pickGuide(g) {
@@ -757,14 +776,17 @@
   });
   searchEl.addEventListener('input', () => {
     S.q = searchEl.value.trim().toLowerCase();
-    applySearch(); drawAll(); renderGuideList();
+    applySearch(); drawAll();
+    if (guideListEl.hidden) openGuideList(); else jumpGuide(S.q);
   });
+  searchEl.addEventListener('focus', () => { searchEl.select(); openGuideList(); });
   searchEl.addEventListener('blur', () => setTimeout(() => { guideListEl.hidden = true; }, 120));
   searchEl.addEventListener('keydown', e => {
     const btns = guideListEl.children;
     if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
       e.preventDefault();
-      if (!guideListEl.hidden) markSSel(sSel + (e.key === 'ArrowDown' ? 1 : -1));
+      if (guideListEl.hidden) openGuideList();
+      else markSSel(sSel + (e.key === 'ArrowDown' ? 1 : -1), 'nearest');
     } else if (e.key === 'Enter') {
       if (!guideListEl.hidden && btns.length) pickGuide(btns[sSel].dataset.guide);
     } else if (e.key === 'Escape') {
