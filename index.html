@@ -163,16 +163,42 @@
 
   #stage { flex: 1; min-height: 0; overflow-y: auto; }
   #stageInner { position: relative; height: 100%; transition: min-height 0.35s ease; }
-  #resetCam {
+  #stageBtns {
     position: sticky; top: 10px; z-index: 10;
-    display: block; width: max-content;
-    margin-left: auto; margin-right: 14px;
+    display: flex; justify-content: space-between;
+    padding: 0 14px; pointer-events: none;
+  }
+  .stagebtn {
+    pointer-events: auto;
     background: #EFB98A; color: var(--paper);
     border-radius: 6px; padding: 4px 11px 5px;
     font: 600 12.5px 'Bricolage Grotesque', sans-serif;
     box-shadow: 0 2px 6px rgba(34, 53, 43, 0.18);
   }
-  #resetCam:hover { background: var(--hot); color: var(--panel); }
+  .stagebtn:hover { background: var(--hot); color: var(--panel); }
+  #rankBox {
+    position: relative; background: var(--panel); border-radius: 12px;
+    width: min(720px, 92vw); max-height: 84vh;
+    display: flex; flex-direction: column;
+    padding: 22px 4px 10px 24px;
+    box-shadow: 0 12px 40px rgba(34, 53, 43, 0.25);
+  }
+  #rankBox h2 { font-size: 18px; margin: 0 0 10px; }
+  #rankTableWrap { overflow-y: auto; padding-right: 18px; }
+  #rankTable { width: 100%; border-collapse: collapse; font: 400 13.5px 'Space Grotesk', sans-serif; font-variant-numeric: tabular-nums; }
+  #rankTable th {
+    position: sticky; top: 0; background: var(--panel);
+    text-align: left; cursor: pointer; white-space: nowrap;
+    font: 600 13px 'Bricolage Grotesque', sans-serif; color: var(--muted);
+    padding: 4px 12px 6px 4px; border-bottom: 1px solid var(--line);
+  }
+  #rankTable th.asc::after { content: ' ▲'; font-size: 10px; }
+  #rankTable th.desc::after { content: ' ▼'; font-size: 10px; }
+  #rankTable td { padding: 3px 12px 3px 4px; border-bottom: 1px solid #EDF1EA; }
+  #rankTable td.num { text-align: right; }
+  #rankTable tbody tr { cursor: pointer; }
+  #rankTable tbody tr:hover { background: var(--hot-soft); }
+  #rankTable tbody tr.pinned td:first-child { font-weight: 600; color: var(--hot); }
   canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
   #overlay { pointer-events: none; }
 
@@ -233,11 +259,14 @@
   #helpBox li { margin-bottom: 10px; }
   #helpBox li b { font-weight: 600; }
   #helpBox .fine { color: var(--muted); font-size: 13.5px; margin-top: 12px; }
+  #rankModal { position: fixed; inset: 0; z-index: 50; background: rgba(34, 53, 43, 0.35); display: flex; align-items: center; justify-content: center; padding: 24px; }
+  #rankClose,
   #helpClose {
     position: absolute; top: 12px; right: 14px;
     font-size: 20px; line-height: 1; color: var(--muted); padding: 4px;
   }
-  #helpClose:hover { color: var(--ink); }
+  #rankClose:hover, #helpClose:hover { color: var(--ink); }
+  #rankClose { position: absolute; top: 12px; right: 14px; font-size: 20px; line-height: 1; color: var(--muted); padding: 4px; }
 
   @media (max-width: 640px) {
     header { gap: 8px 16px; padding: 10px 14px 8px; }
@@ -284,6 +313,25 @@
   </div>
 </header>
 
+<div id="rankModal" hidden>
+  <div id="rankBox" role="dialog" aria-modal="true" aria-labelledby="rankTitle">
+    <button id="rankClose" aria-label="close">×</button>
+    <h2 id="rankTitle">Full ranking</h2>
+    <div id="rankTableWrap">
+      <table id="rankTable">
+        <thead><tr>
+          <th data-k="rank" class="asc">Gene rank</th>
+          <th data-k="coef">Coef</th>
+          <th data-k="guide">Guide</th>
+          <th data-k="target">Target</th>
+          <th data-k="active">★</th>
+        </tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
 <div id="helpModal" hidden>
   <div id="helpBox" role="dialog" aria-modal="true" aria-labelledby="helpTitle">
     <button id="helpClose" aria-label="close">×</button>
@@ -322,14 +370,17 @@
   <div class="ctl" id="labelCtl"><span>labels</span><span class="seg">
     <button class="tog on" data-g="labels" data-v="top">top hits</button>
     <button class="tog" data-g="labels" data-v="off">off</button></span>
-    <span id="nLabelWrap"><input type="range" id="nLabel" min="1" max="150" value="15"
+    <span id="nLabelWrap"><input type="range" id="nLabel" min="1" max="50" value="15"
       title="how many top/bottom guides to mark"><span id="nLabelVal" class="mono">15</span></span>
   </div>
 </div>
 
 <div id="stage">
   <div id="stageInner">
-    <button id="resetCam" hidden>reset camera</button>
+    <div id="stageBtns">
+      <button id="viewRank" class="stagebtn" hidden>view full ranking</button>
+      <button id="resetCam" class="stagebtn" hidden>reset camera</button>
+    </div>
     <canvas id="main"></canvas>
     <canvas id="overlay"></canvas>
     <div id="pins"></div>
@@ -381,17 +432,6 @@
   // (stable across genes/states). Self-target labels always use COL.self.
   const FAM = ['#0b6e63', '#a02458', '#8a5c00', '#59701a', '#7c4a22'];
   const GOLD = '#D9A514';
-
-  function starPath(ctx, cx, cy, r) {
-    for (let k = 0; k < 5; k++) {
-      const a = -Math.PI / 2 + k * 2 * Math.PI / 5;
-      const b = a + Math.PI / 5;
-      if (k === 0) ctx.moveTo(cx + r * Math.cos(a), cy + r * Math.sin(a));
-      else ctx.lineTo(cx + r * Math.cos(a), cy + r * Math.sin(a));
-      ctx.lineTo(cx + 0.45 * r * Math.cos(b), cy + 0.45 * r * Math.sin(b));
-    }
-    ctx.closePath();
-  }
   const famHash = str => {
     let h = 0;
     for (let i = 0; i < str.length; i++) h = (h * 31 + str.charCodeAt(i)) >>> 0;
@@ -443,6 +483,7 @@
     dz.style.display = 'none';
     $('infobar').hidden = false;
     $('resetCam').hidden = false;
+    $('viewRank').hidden = false;
     $('search').disabled = false;
     syncCtls();
   }
@@ -923,10 +964,8 @@
       ? key(COL.up, `top ${d.topIdx.length} upregulating guides`) +
         key(COL.down, `top ${d.botIdx.length} downregulating guides`) : '';
     $('nLabelWrap').hidden = S.labels !== 'top';
-    $('counts').textContent = S.mode === 'catalog'
-      ? (S.pool === 'active' ? 'active guides only' : '')
-      : (S.dataset ? S.dataset + ' · ' : '') + fmtI(d.n) + ' points' +
-        (S.pool === 'active' ? ' · active only' : '');
+    $('counts').textContent = S.mode === 'catalog' ? ''
+      : (S.dataset ? S.dataset + ' · ' : '') + fmtI(d.n) + ' points';
   }
 
   $('clearPins').addEventListener('click', () => {
@@ -1112,17 +1151,6 @@
     const sf = []; for (let i = 0; i < d.n; i++) if (d.self[i]) sf.push(i);
     dotPass(sf, COL.self, 4.25);
 
-    // gold star badge marks active guides (same star as the toggle and the lists)
-    mctx.fillStyle = GOLD;
-    mctx.beginPath();
-    for (let i = 0; i < d.n; i++) {
-      if (!d.active[i]) continue;
-      const x = t.x + t.k * d.bx[i], y = t.y + t.k * d.by[i];
-      if (x < M.l-6 || x > W-M.r+6 || y < M.t-6 || y > H-M.b+6) continue;
-      starPath(mctx, x + 5, y - 5, 3.6);
-    }
-    mctx.fill();
-
     // guides whose target family has a colour (>= 2 labelled mates) wear it as an
     // outer outline, outside the paper ring, so point and label always agree
     if (labeling) {
@@ -1189,7 +1217,7 @@
         for (let i = 0; i < d.n; i++) {
           if (!d.match[i] || S.pinned.has(d.names[i])) continue;
           seen.push({ name: d.names[i], x: t.applyX(d.bx[i]), y: t.applyY(d.by[i]),
-                      tgt: d.target[i], search: true });
+                      tgt: d.target[i], act: d.active[i], search: true });
         }
       }
     }
@@ -1200,7 +1228,7 @@
       octx.strokeStyle = cmap.get(d.target[i]) || C.ink; octx.lineWidth = 1.5;
       octx.beginPath(); octx.arc(x, y, 6, 0, Math.PI*2); octx.stroke();
       octx.beginPath(); octx.moveTo(x + 4.5, y - 4.5); octx.lineTo(x + 9, y - 9); octx.stroke();
-      seen.push({ name: d.names[i], x, y, tgt: d.target[i] });
+      seen.push({ name: d.names[i], x, y, tgt: d.target[i], act: d.active[i] });
     }
     // hover ring
     if (S.hover >= 0) {
@@ -1265,6 +1293,10 @@
         octx.fillStyle = cmap.get(d.target[p.i]) || C.ink;
         octx.textAlign = s.align; octx.textBaseline = 'middle';
         octx.fillText(name, s.ax, ly);
+        if (d.active[p.i]) {
+          octx.fillStyle = GOLD;
+          octx.fillText('★', s.align === 'left' ? s.ax + tw + 4 : s.ax - tw - 4, ly);
+        }
         labelHits.push({ i: p.i, ly, px: p.x, py: p.y, ex,
                          x0: s.align === 'left' ? s.ax : s.ax - tw,
                          x1: s.align === 'left' ? s.ax + tw : s.ax });
@@ -1291,7 +1323,8 @@
         applySearch();
         drawOverlay();
       };
-      if (el.textContent !== s.name) el.textContent = s.name;
+      const chipHtml = esc(s.name) + (s.act ? ' <span class="star">★</span>' : '');
+      if (el.dataset.h !== chipHtml) { el.innerHTML = chipHtml; el.dataset.h = chipHtml; }
       el.style.color = (cmap && s.tgt && cmap.get(s.tgt)) || '';
       const off = s.x > W - 130;                 // flip near right edge
       el.style.transform = off ? 'translate(-100%, -21px)' : 'translate(9px, -21px)';
@@ -1302,13 +1335,72 @@
   }
 
 
+  // ---------- full-ranking lookup ----------
+  const rankModal = $('rankModal');
+  const rankTbody = document.querySelector('#rankTable tbody');
+  let rankSort = { k: 'rank', dir: 1 };
+  const RANK_DEFAULT_DIR = { rank: 1, coef: -1, guide: 1, target: 1, active: -1 };
+
+  function renderRankTable() {
+    const d = S.d;
+    const { k, dir } = rankSort;
+    const val = i => k === 'guide' ? d.names[i]
+      : k === 'target' ? (d.target[i] || '')
+      : k === 'coef' ? d.x[i]
+      : k === 'active' ? (d.active[i] || 0)
+      : d.rank[i];
+    const idx = d3.range(d.n).sort((a, b) => {
+      const va = val(a), vb = val(b);
+      return (va < vb ? -1 : va > vb ? 1 : 0) * dir;
+    });
+    const rows = [];
+    for (const i of idx) {
+      rows.push(`<tr data-nm="${esc(d.names[i])}"${S.pinned.has(d.names[i]) ? ' class="pinned"' : ''}>` +
+        `<td class="num">${fmtI(d.rank[i])}</td><td class="num">${fmt(d.x[i])}</td>` +
+        `<td>${esc(d.names[i])}</td><td>${esc(d.target[i] || '')}</td>` +
+        `<td class="num">${d.active[i] ? '<span class="star">★</span>' : ''}</td></tr>`);
+    }
+    rankTbody.innerHTML = rows.join('');
+    document.querySelectorAll('#rankTable th').forEach(th => {
+      th.classList.toggle('asc', th.dataset.k === k && dir === 1);
+      th.classList.toggle('desc', th.dataset.k === k && dir === -1);
+    });
+  }
+
+  $('viewRank').addEventListener('click', () => {
+    if (!S.d) return;
+    $('rankTitle').textContent = 'Full ranking — ' +
+      (S.mode === 'catalog' ? `${S.gene} (${S.state})` : (S.dataset || ''));
+    rankSort = { k: 'rank', dir: 1 };
+    renderRankTable();
+    rankModal.hidden = false;
+  });
+  $('rankClose').addEventListener('click', () => { rankModal.hidden = true; });
+  rankModal.addEventListener('click', e => { if (e.target === rankModal) rankModal.hidden = true; });
+  document.querySelectorAll('#rankTable th').forEach(th => th.addEventListener('click', () => {
+    const k = th.dataset.k;
+    rankSort = { k, dir: rankSort.k === k ? -rankSort.dir : RANK_DEFAULT_DIR[k] };
+    renderRankTable();
+  }));
+  rankTbody.addEventListener('click', e => {
+    const tr = e.target.closest('tr[data-nm]');
+    if (!tr) return;
+    const nm = tr.dataset.nm;
+    S.pinned.has(nm) ? S.pinned.delete(nm) : S.pinned.add(nm);
+    tr.classList.toggle('pinned', S.pinned.has(nm));
+    applySearch();
+    drawOverlay();
+  });
+
   // ---------- help modal ----------
   const helpModal = $('helpModal');
   $('helpBtn').addEventListener('click', () => { helpModal.hidden = false; });
   $('helpClose').addEventListener('click', () => { helpModal.hidden = true; });
   helpModal.addEventListener('click', e => { if (e.target === helpModal) helpModal.hidden = true; });
   document.addEventListener('keydown', e => {
-    if (e.key === 'Escape' && !helpModal.hidden) helpModal.hidden = true;
+    if (e.key !== 'Escape') return;
+    if (!helpModal.hidden) helpModal.hidden = true;
+    else if (!rankModal.hidden) rankModal.hidden = true;
   });
 
   resize();
