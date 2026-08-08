@@ -213,8 +213,11 @@
       <div id="geneList" class="combolist" hidden></div>
     </div>
   </div>
-  <div class="ctl">
-    <input type="search" id="search" placeholder="search guides" disabled>
+  <div class="ctl"><span>guide</span>
+    <div class="combo">
+      <input type="search" id="search" placeholder="search guides" disabled>
+      <div id="guideList" class="combolist" hidden></div>
+    </div>
     <span id="matchInfo" class="mono"></span>
     <button id="pinMatches">pin these</button>
   </div>
@@ -682,9 +685,61 @@
   main.addEventListener('dblclick', () => resetView());
 
   // ---------- search ----------
-  const searchEl = $('search');
-  searchEl.addEventListener('input', () => { S.q = searchEl.value.trim().toLowerCase(); applySearch(); drawAll(); });
-  searchEl.addEventListener('keydown', e => { if (e.key === 'Escape') { searchEl.value=''; S.q=''; applySearch(); drawAll(); } });
+  const searchEl = $('search'), guideListEl = $('guideList');
+  let sSel = 0;
+
+  function markSSel(i) {
+    const btns = guideListEl.children;
+    if (!btns.length) return;
+    sSel = Math.max(0, Math.min(btns.length - 1, i));
+    const old = guideListEl.querySelector('.sel');
+    if (old) old.classList.remove('sel');
+    btns[sSel].classList.add('sel');
+    btns[sSel].scrollIntoView({ block: 'nearest' });
+  }
+
+  // same styled dropdown as the gene picker: guides matching the query by name or target
+  function renderGuideList() {
+    const meta = S.guideMeta[S.state];
+    if (!meta || !S.q || S.mode !== 'catalog') { guideListEl.hidden = true; return; }
+    const out = [];
+    for (let i = 0; i < meta.guide.length && out.length < 200; i++) {
+      if (meta.guide[i].toLowerCase().includes(S.q) || meta.tlower[i].includes(S.q))
+        out.push(meta.guide[i]);
+    }
+    if (!out.length) { guideListEl.hidden = true; return; }
+    guideListEl.innerHTML = out.map(g => `<button data-guide="${esc(g)}">${esc(g)}</button>`).join('');
+    guideListEl.hidden = false;
+    markSSel(0);
+  }
+
+  function pickGuide(g) {
+    searchEl.value = g; S.q = g.toLowerCase();
+    guideListEl.hidden = true;
+    applySearch(); drawAll();
+  }
+
+  guideListEl.addEventListener('pointerdown', e => {
+    const b = e.target.closest('button[data-guide]');
+    if (b) { e.preventDefault(); pickGuide(b.dataset.guide); }
+  });
+  searchEl.addEventListener('input', () => {
+    S.q = searchEl.value.trim().toLowerCase();
+    applySearch(); drawAll(); renderGuideList();
+  });
+  searchEl.addEventListener('blur', () => setTimeout(() => { guideListEl.hidden = true; }, 120));
+  searchEl.addEventListener('keydown', e => {
+    const btns = guideListEl.children;
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault();
+      if (!guideListEl.hidden) markSSel(sSel + (e.key === 'ArrowDown' ? 1 : -1));
+    } else if (e.key === 'Enter') {
+      if (!guideListEl.hidden && btns.length) pickGuide(btns[sSel].dataset.guide);
+    } else if (e.key === 'Escape') {
+      guideListEl.hidden = true;
+      searchEl.value = ''; S.q = ''; applySearch(); drawAll();
+    }
+  });
 
   function applySearch() {
     const d = S.d; if (!d) return;
@@ -869,9 +924,9 @@
     }
     mctx.fill();
 
-    // emphasized marks: filled dot + 2px surface ring so they read over the cloud
+    // emphasized marks: plain filled dots, no border
     const dotPass = (idxs, col, r, skip) => {
-      mctx.fillStyle = col; mctx.strokeStyle = C.paper; mctx.lineWidth = 2;
+      mctx.fillStyle = col;
       mctx.beginPath();
       for (const i of idxs) {
         if (skip && skip(i)) continue;
@@ -879,7 +934,7 @@
         if (x < M.l-4 || x > W-M.r+4 || y < M.t-4 || y > H-M.b+4) continue;
         mctx.moveTo(x + r, y); mctx.arc(x, y, r, 0, TAU);
       }
-      mctx.stroke(); mctx.fill();
+      mctx.fill();
     };
     if (labeling) {
       dotPass(d.topIdx, COL.up, 3.8, i => d.self[i]);
@@ -911,7 +966,7 @@
         for (const i of idxs) {
           const x = t.x + t.k * d.bx[i], y = t.y + t.k * d.by[i];
           if (x < M.l-6 || x > W-M.r+6 || y < M.t-6 || y > H-M.b+6) continue;
-          mctx.moveTo(x + 5.6, y); mctx.arc(x, y, 5.6, 0, TAU);
+          mctx.moveTo(x + 5.0, y); mctx.arc(x, y, 5.0, 0, TAU);
         }
         mctx.stroke();
       }
@@ -1022,8 +1077,8 @@
         octx.font = (hov ? '600' : '500') + ' 13.5px "Bricolage Grotesque", sans-serif';
         const tw = octx.measureText(name).width;
         const ex = nbStyle ? s.ax + s.dir * 3 : s.ax + s.dir * (tw + 3);
-        octx.strokeStyle = hov ? 'rgba(34,53,43,0.65)' : 'rgba(34,53,43,0.28)';
-        octx.lineWidth = hov ? 1.4 : 0.7;
+        octx.strokeStyle = hov ? 'rgba(34,53,43,0.7)' : 'rgba(34,53,43,0.42)';
+        octx.lineWidth = hov ? 1.5 : 0.9;
         octx.beginPath(); octx.moveTo(p.x, p.y); octx.lineTo(ex, ly); octx.stroke();
         octx.fillStyle = cmap.get(d.target[p.i]) || C.ink;
         octx.textAlign = s.align; octx.textBaseline = 'middle';
