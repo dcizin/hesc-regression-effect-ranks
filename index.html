@@ -319,6 +319,26 @@
   // Mark palette, validated all-pairs for CVD + normal vision on this surface
   // (dataviz validate_palette.js: worst pair ΔE 13.0 deutan / 16.3 normal — passes).
   const COL = { up: '#e34948', down: '#2a78d6', self: '#4a3aa7' };
+  // Same-target label grouping: dark text-safe family hues, assigned per target name
+  // (stable across genes/states). Self-target labels always use COL.self.
+  const FAM = ['#0e6b5e', '#96276e', '#845d00', '#5f6b1f', '#7d4a21'];
+  const famHash = str => {
+    let h = 0;
+    for (let i = 0; i < str.length; i++) h = (h * 31 + str.charCodeAt(i)) >>> 0;
+    return h;
+  };
+  // Colour labels by target: violet for the viewed gene's own guides; a family hue when
+  // >= 2 displayed labels share a target; ink otherwise (singletons stay quiet).
+  function targetColors(d, idxs) {
+    const counts = {};
+    for (const i of idxs) { const tg = d.target[i]; if (tg) counts[tg] = (counts[tg] || 0) + 1; }
+    const map = new Map();
+    for (const tg in counts) {
+      if (S.mode === 'catalog' && S.gene && tg.split('|').includes(S.gene)) map.set(tg, COL.self);
+      else if (counts[tg] >= 2) map.set(tg, FAM[famHash(tg) % FAM.length]);
+    }
+    return map;
+  }
   const esc = s => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');
 
   // ---------- generic file loading ----------
@@ -866,17 +886,22 @@
     octx.save();
     octx.beginPath(); octx.rect(M.l - 6, M.t - 6, W - M.l - M.r + 12, H - M.t - M.b + 12); octx.clip();
 
-    if (S.labels === 'top' && !d.match) drawAutoLabels(d, t);
-
-    // pinned rings + leaders (pins are guide names, resolved against the current view)
+    const pinIdx = [];
     for (const nm of S.pinned) {
       const i = d.nameToIdx.get(nm);
-      if (i === undefined) continue;             // guide absent from this state / filter / column
+      if (i !== undefined) pinIdx.push(i);       // guide absent from this state / filter -> skip
+    }
+    const labeling = S.labels === 'top' && !d.match;
+    const cmap = targetColors(d, labeling ? d.topIdx.concat(d.botIdx, pinIdx) : pinIdx);
+    if (labeling) drawAutoLabels(d, t, cmap);
+
+    // pinned rings + leaders (pins are guide names, resolved against the current view)
+    for (const i of pinIdx) {
       const x = t.applyX(d.bx[i]), y = t.applyY(d.by[i]);
       octx.strokeStyle = C.ink; octx.lineWidth = 1.5;
       octx.beginPath(); octx.arc(x, y, 6, 0, Math.PI*2); octx.stroke();
       octx.beginPath(); octx.moveTo(x + 4.5, y - 4.5); octx.lineTo(x + 9, y - 9); octx.stroke();
-      seen.push({ name: nm, x, y });
+      seen.push({ name: d.names[i], x, y, tgt: d.target[i] });
     }
     // hover ring
     if (S.hover >= 0) {
@@ -885,7 +910,7 @@
       octx.beginPath(); octx.arc(x, y, 5.5, 0, Math.PI*2); octx.stroke();
     }
     octx.restore();
-    syncPinLabels(seen);
+    syncPinLabels(seen, cmap);
   }
 
   // spread label y-positions in a band that hugs the points' own range (short leaders)
@@ -902,7 +927,7 @@
     return n === 1 ? [(a + b) / 2] : ptYs.map((_, k) => a + (b - a) * k / (n - 1));
   }
 
-  function drawAutoLabels(d, t) {
+  function drawAutoLabels(d, t, cmap) {
     const vis = i => {
       const x = t.applyX(d.bx[i]), y = t.applyY(d.by[i]);
       return (x >= M.l - 4 && x <= W - M.r + 4 && y >= M.t - 4 && y <= H - M.b + 4)
@@ -931,14 +956,14 @@
                            : s.ax + s.dir * (octx.measureText(name).width + 3);
         octx.strokeStyle = 'rgba(34,53,43,0.28)'; octx.lineWidth = 0.7;
         octx.beginPath(); octx.moveTo(p.x, p.y); octx.lineTo(ex, ly); octx.stroke();
-        octx.fillStyle = C.ink;
+        octx.fillStyle = cmap.get(d.target[p.i]) || C.ink;
         octx.textAlign = s.align; octx.textBaseline = 'middle';
         octx.fillText(name, s.ax, ly);
       });
     }
   }
 
-  function syncPinLabels(seen) {
+  function syncPinLabels(seen, cmap) {
     const want = new Set(seen.map(s => s.name));
     for (const el of [...pinsBox.children]) {
       if (!want.has(el.dataset.name)) el.remove();
@@ -953,6 +978,7 @@
         pinsBox.appendChild(el);
       }
       if (el.textContent !== s.name) el.textContent = s.name;
+      el.style.color = (cmap && s.tgt && cmap.get(s.tgt)) || '';
       const off = s.x > W - 130;                 // flip near right edge
       el.style.transform = off ? 'translate(-100%, -21px)' : 'translate(9px, -21px)';
       el.style.left = (off ? s.x - 9 : s.x) + 'px';
