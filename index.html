@@ -176,8 +176,15 @@
     box-shadow: 0 2px 6px rgba(34, 53, 43, 0.18);
   }
   .stagebtn:hover { background: var(--hot); color: var(--panel); }
-  .stagebtn.on { background: var(--hot); color: var(--panel); }
-  #stage.lassoing canvas { cursor: crosshair !important; }
+  #lassoBtn {
+    width: 28px; height: 26px; padding: 0;
+    display: inline-flex; align-items: center; justify-content: center;
+    background: var(--panel); color: var(--muted);
+    border: 1px solid var(--line); border-radius: 6px;
+  }
+  #lassoBtn:hover { color: var(--ink); border-color: var(--hot); }
+  #lassoBtn.on { background: var(--hot); border-color: var(--hot); color: #fff; }
+  #stage.lassoing canvas { cursor: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='22' height='22' viewBox='0 0 22 22'><g fill='none' stroke-linecap='round'><ellipse cx='11' cy='8' rx='7.5' ry='5' stroke='%23FBFCF9' stroke-width='4'/><path d='M5.5 11.5C4.5 14 5 16.5 8 18' stroke='%23FBFCF9' stroke-width='4'/><ellipse cx='11' cy='8' rx='7.5' ry='5' stroke='%2322352B' stroke-width='2'/><path d='M5.5 11.5C4.5 14 5 16.5 8 18' stroke='%2322352B' stroke-width='2'/><circle cx='8' cy='18' r='1.3' fill='%2322352B'/></g></svg>") 11 8, crosshair !important; }
   #rankBox {
     position: relative; background: var(--panel); border-radius: 12px;
     width: min(720px, 92vw); max-height: 84vh;
@@ -369,8 +376,8 @@
 <div id="infobar" hidden><span id="labelInfo"></span><span id="selfInfo"></span>
   <span id="counts" class="mono"></span>
   <button class="filebtn" id="clearPins" disabled>clear all pins</button>
-  <button class="stagebtn" id="lassoBtn" hidden
-    title="circle points to pin them — or hold Shift and drag">lasso</button>
+  <button id="lassoBtn" hidden
+    title="circle points to pin them — or hold Shift and drag"><svg width="16" height="16" viewBox="0 0 22 22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><ellipse cx="11" cy="8" rx="7.5" ry="5"/><path d="M5.5 11.5C4.5 14 5 16.5 8 18"/><circle cx="8" cy="18" r="1.3" fill="currentColor" stroke="none"/></svg></button>
   <div class="ctl" id="labelCtl"><span>labels</span><span class="seg">
     <button class="tog on" data-g="labels" data-v="top">top hits</button>
     <button class="tog" data-g="labels" data-v="off">off</button></span>
@@ -1015,7 +1022,7 @@
     }
     return -1;
   }
-  function showTip(i, hint) {
+  function showTip(i) {
     const d = S.d;
     const rankLine = d.useFile
       ? (S.ymode === 'pct' ? 'pct ' + fmtP(d.pct[i]) : 'rank ' + fmtI(d.rank[i]) + ' / ' + fmtI(d.nU))
@@ -1023,8 +1030,7 @@
     tip.innerHTML = '<b>' + esc(d.names[i]) + '</b>' +
       (d.active[i] ? ' <span class="star">★</span>' : '') + '<br>' +
       esc(S.valueCol) + ' <b>' + fmt(d.x[i]) + '</b><br>' + rankLine +
-      (d.target[i] ? '<br>target ' + esc(d.target[i]) : '') +
-      (hint ? '<br><span style="opacity:0.6">' + hint + '</span>' : '');
+      (d.target[i] ? '<br>target ' + esc(d.target[i]) : '');
     const px = S.t.applyX(d.bx[i]), py = S.t.applyY(d.by[i]);
     tip.style.display = 'block';
     const tw = tip.offsetWidth;
@@ -1403,7 +1409,6 @@
         pinsBox.appendChild(el);
       }
       el.className = 'pinlabel' + (s.search ? ' search' : '');
-      el.title = s.search ? 'pin this guide' : 'unpin';
       el.onclick = () => {
         if (s.search) S.pinned.add(s.name); else S.pinned.delete(s.name);
         applySearch();
@@ -1416,7 +1421,7 @@
         if (i === undefined) return;
         S.hover = i;
         drawOverlay();
-        showTip(i, s.search ? 'click to pin' : 'click to unpin');
+        showTip(i);
       };
       el.onmouseleave = () => {
         S.hover = -1;
