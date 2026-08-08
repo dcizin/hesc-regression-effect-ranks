@@ -1,4 +1,4 @@
-# RankPlot
+# hESC CRISPRi Coef-Rank Viewer
 
 Interactive coefficient-rank ("volcano") viewer for the hESC CRISPRi high-MOI screen.
 Each plot shows, for one gene, every guide's regression coefficient (x) against that
@@ -23,11 +23,11 @@ and commit.
 One-time, from this directory, after `gh auth login`:
 
 ```bash
-gh repo create rankplot --public --source . --remote origin --push
-gh api -X POST "repos/{owner}/rankplot/pages" -f "source[branch]=main" -f "source[path]=/"
+gh repo create hesc-crispri-coef-rank-viewer --public --source . --remote origin --push
+gh api -X POST "repos/{owner}/hesc-crispri-coef-rank-viewer/pages" -f "source[branch]=main" -f "source[path]=/"
 ```
 
-Site URL: `https://<github-username>.github.io/rankplot/` (first deploy takes ~1 min).
+Site URL: `https://<github-username>.github.io/hesc-crispri-coef-rank-viewer/` (first deploy takes ~1 min).
 Note: free-plan GitHub Pages requires the repo to be public — the site is
 link-shareable but not access-controlled.
 
