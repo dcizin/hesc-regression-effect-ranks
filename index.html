@@ -20,7 +20,8 @@
   }
   * { box-sizing: border-box; margin: 0; }
   [hidden] { display: none !important; }
-  html, body { height: 100%; }
+  html { height: 100%; }
+  body { min-height: 100%; }
   body {
     font-family: 'Bricolage Grotesque', system-ui, sans-serif;
     background: var(--paper);
@@ -134,7 +135,7 @@
   #nLabelVal { font-size: 13px; color: var(--muted); min-width: 18px; }
   .key i { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
 
-  #stage { flex: 1; position: relative; min-height: 0; }
+  #stage { flex: 1; position: relative; min-height: 0; transition: min-height 0.35s ease; }
   canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
   #overlay { pointer-events: none; }
 
@@ -282,7 +283,7 @@
   <div class="ctl" id="labelCtl"><span>labels</span><span class="seg">
     <button class="tog on" data-g="labels" data-v="top">top hits</button>
     <button class="tog" data-g="labels" data-v="off">off</button></span>
-    <span id="nLabelWrap"><input type="range" id="nLabel" min="1" max="50" value="15"
+    <span id="nLabelWrap"><input type="range" id="nLabel" min="1" max="150" value="15"
       title="how many top/bottom guides to mark"><span id="nLabelVal" class="mono">15</span></span>
   </div>
 </div>
@@ -623,6 +624,7 @@
             nameToIdx: new Map(names.map((nm, p) => [nm, p])) };
     computeHits();
     applySearch();
+    updateStageHeight();
   }
 
   // top/bottom hits, notebook-style: by rank, most-up first; slider-adjustable
@@ -637,11 +639,25 @@
     d.botSet = new Set(d.botIdx);
   }
 
+  // when a label column outgrows the viewport, grow the stage (page scrolls) — the
+  // CSS transition makes the change fluid and ResizeObserver re-renders every frame
+  function updateStageHeight() {
+    const d = S.d;
+    let need = 0;
+    if (d && S.labels === 'top') {
+      let r = 0, l = 0;
+      for (const i of d.topIdx.concat(d.botIdx)) (d.x[i] >= 0 ? r++ : l++);
+      need = Math.max(r, l) * 18 + M.t + M.b + 40;
+    }
+    const avail = window.innerHeight - stage.getBoundingClientRect().top - 1;
+    stage.style.minHeight = need > avail ? need + 'px' : '';
+  }
+
   const nLabelEl = $('nLabel');
   nLabelEl.addEventListener('input', () => {
     S.nLabel = +nLabelEl.value;
     $('nLabelVal').textContent = nLabelEl.value;
-    if (S.d) { computeHits(); applySearch(); drawAll(); }
+    if (S.d) { computeHits(); applySearch(); updateStageHeight(); drawAll(); }
   });
 
   // ---------- layout / scales ----------
@@ -850,7 +866,7 @@
       S[g] = v;
       document.querySelectorAll(`.tog[data-g="${g}"]`).forEach(x => x.classList.toggle('on', x.dataset.v === v));
       if (g === 'state') { switchState(v); return; }
-      if (g === 'labels') { if (S.d) { applySearch(); drawAll(); } return; }
+      if (g === 'labels') { if (S.d) { applySearch(); updateStageHeight(); drawAll(); } return; }
       syncCtls();
       if (S.d) { computeData(); resetView(); }
     }));
