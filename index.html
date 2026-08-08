@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>hESC Regression Effect Ranks</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@400;500;600&family=Spline+Sans+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@400;500;600&family=Space+Grotesk:wght@400;500;600&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.9.0/d3.min.js"></script>
 <style>
@@ -28,7 +28,7 @@
     display: flex; flex-direction: column;
     font-size: 14px;
   }
-  .mono { font-family: 'Spline Sans Mono', monospace; }
+  .mono { font-family: 'Space Grotesk', 'Bricolage Grotesque', sans-serif; font-variant-numeric: tabular-nums; }
 
   header {
     display: flex; align-items: center; flex-wrap: wrap;
@@ -59,22 +59,24 @@
   .filebtn:hover { border-bottom-color: var(--hot); }
 
   select {
-    font: 500 14px 'Spline Sans Mono', monospace;
+    font: 500 14px 'Space Grotesk', 'Bricolage Grotesque', sans-serif;
     color: var(--ink); background: var(--panel);
     border: 1px solid var(--line); border-radius: 6px;
     padding: 4px 6px; max-width: 170px;
   }
   input[type="search"], input[type="text"] {
-    font: 400 14px 'Spline Sans Mono', monospace;
+    font: 500 14px 'Space Grotesk', 'Bricolage Grotesque', sans-serif;
     color: var(--ink); background: var(--panel);
     border: 1px solid var(--line); border-radius: 6px;
     padding: 5px 10px; width: 200px;
   }
   input::placeholder { color: var(--muted); }
+  input[type="search"]::-webkit-search-cancel-button,
+  input[type="search"]::-webkit-search-decoration { -webkit-appearance: none; appearance: none; }
   :is(button, select, input, .colbtn):focus-visible { outline: 2px solid var(--hot); outline-offset: 2px; }
-  #matchInfo { font-size: 13px; color: var(--muted); min-width: 74px; }
-  #pinMatches { color: var(--hot); font-weight: 500; display: none; }
-  #pinMatches.show { display: inline; }
+  #matchInfo { font-size: 13px; color: var(--muted); min-width: 86px; }
+  #pinMatches { color: var(--hot); font-weight: 500; visibility: hidden; }
+  #pinMatches.show { visibility: visible; }
 
   .combo { position: relative; }
   #geneInput { width: 170px; }
@@ -87,7 +89,7 @@
   }
   .combolist button {
     display: block; width: 100%; text-align: left;
-    font: 400 13.5px 'Spline Sans Mono', monospace;
+    font: 400 13.5px 'Space Grotesk', 'Bricolage Grotesque', sans-serif;
     padding: 5px 10px; border-radius: 5px;
   }
   .combolist button:hover, .combolist button.sel { background: var(--hot-soft); }
@@ -137,10 +139,12 @@
     transform: translate(9px, -21px);
   }
   .pinlabel:hover { background: var(--hot-soft); border-color: var(--hot); }
+  .pinlabel.search { border-color: var(--hot); border-style: dashed; }
 
   #tip {
     position: absolute; pointer-events: none; display: none;
-    font: 400 14px 'Spline Sans Mono', monospace;
+    font: 400 14px 'Space Grotesk', 'Bricolage Grotesque', sans-serif;
+    font-variant-numeric: tabular-nums;
     color: var(--paper); background: var(--ink);
     border-radius: 6px; padding: 5px 9px 6px;
     line-height: 1.5; white-space: nowrap; z-index: 5;
@@ -800,7 +804,7 @@
 
     // grid + axes
     mctx.strokeStyle = C.line; mctx.lineWidth = 1;
-    mctx.font = '14px "Spline Sans Mono", monospace';
+    mctx.font = '14px "Space Grotesk", sans-serif';
     mctx.fillStyle = C.muted;
     const yt = S.ymode === 'pct' ? [0, .25, .5, .75, 1].filter(v => zy(v) > M.t-2 && zy(v) < H-M.b+2) : zy.ticks(5);
     mctx.textAlign = 'right'; mctx.textBaseline = 'middle';
@@ -896,10 +900,10 @@
     labelHits = [];
     const labeling = S.labels === 'top';
     const cmap = targetColors(d, labeling ? d.topIdx.concat(d.botIdx, pinIdx) : pinIdx);
-    if (labeling || (d.match && S.matchCount <= 20)) drawAutoLabels(d, t, cmap);
+    if (labeling) drawAutoLabels(d, t, cmap);
 
     // search matches: hot rings over whatever is already drawn — an added layer,
-    // never a repaint of the base plot
+    // never a repaint of the base plot; small match sets also get pin-style chips
     if (d.match) {
       octx.strokeStyle = C.hot; octx.lineWidth = 1.6;
       octx.beginPath();
@@ -910,6 +914,13 @@
         octx.moveTo(x + 5.5, y); octx.arc(x, y, 5.5, 0, Math.PI * 2);
       }
       octx.stroke();
+      if (S.matchCount <= 20) {
+        for (let i = 0; i < d.n; i++) {
+          if (!d.match[i] || S.pinned.has(d.names[i])) continue;
+          seen.push({ name: d.names[i], x: t.applyX(d.bx[i]), y: t.applyY(d.by[i]),
+                      tgt: d.target[i], search: true });
+        }
+      }
     }
 
     // pinned rings + leaders (pins are guide names, resolved against the current view)
@@ -950,12 +961,8 @@
       return (x >= M.l - 4 && x <= W - M.r + 4 && y >= M.t - 4 && y <= H - M.b + 4)
         ? { i, x, y } : null;
     };
-    const auto = S.labels === 'top' ? d.topIdx.concat(d.botIdx) : [];
-    const matchIdx = [];
-    if (d.match && S.matchCount <= 20)
-      for (let i = 0; i < d.n; i++) if (d.match[i]) matchIdx.push(i);
-    const matchSet = new Set(matchIdx);
-    const all = auto.filter(i => !matchSet.has(i)).concat(matchIdx).map(vis).filter(Boolean);
+    const all = (S.labels === 'top' ? d.topIdx.concat(d.botIdx) : [])
+      .map(vis).filter(Boolean);
     if (!all.length) return;
     octx.font = '500 13.5px "Bricolage Grotesque", sans-serif';
     // Label columns anchored just outside the data (notebook: xmax + 0.10*xr), so leaders
@@ -981,7 +988,7 @@
         octx.strokeStyle = hov ? 'rgba(34,53,43,0.65)' : 'rgba(34,53,43,0.28)';
         octx.lineWidth = hov ? 1.4 : 0.7;
         octx.beginPath(); octx.moveTo(p.x, p.y); octx.lineTo(ex, ly); octx.stroke();
-        octx.fillStyle = matchSet.has(p.i) ? C.hot : (cmap.get(d.target[p.i]) || C.ink);
+        octx.fillStyle = cmap.get(d.target[p.i]) || C.ink;
         octx.textAlign = s.align; octx.textBaseline = 'middle';
         octx.fillText(name, s.ax, ly);
         labelHits.push({ i: p.i, ly, px: p.x, py: p.y, ex,
@@ -1000,11 +1007,15 @@
       let el = [...pinsBox.children].find(e => e.dataset.name === s.name);
       if (!el) {
         el = document.createElement('div');
-        el.className = 'pinlabel'; el.dataset.name = s.name;
-        el.title = 'unpin';
-        el.addEventListener('click', () => { S.pinned.delete(s.name); drawOverlay(); });
+        el.dataset.name = s.name;
         pinsBox.appendChild(el);
       }
+      el.className = 'pinlabel' + (s.search ? ' search' : '');
+      el.title = s.search ? 'pin this guide' : 'unpin';
+      el.onclick = () => {
+        if (s.search) S.pinned.add(s.name); else S.pinned.delete(s.name);
+        drawOverlay();
+      };
       if (el.textContent !== s.name) el.textContent = s.name;
       el.style.color = (cmap && s.tgt && cmap.get(s.tgt)) || '';
       const off = s.x > W - 130;                 // flip near right edge
