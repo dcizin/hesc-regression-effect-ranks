@@ -1184,7 +1184,7 @@
     mctx.textAlign = 'center'; mctx.textBaseline = 'alphabetic';
     const xlab = S.mode === 'catalog' ? 'Regression coef' : S.valueCol;
     mctx.fillText(xlab, M.l + (W - M.l - M.r)/2, H - 8);
-    const ptitle = S.mode === 'catalog' ? `${S.gene} — ${S.state}` : (S.dataset || '');
+    const ptitle = S.mode === 'catalog' ? `${S.state} — ${S.gene}` : (S.dataset || '');
     if (ptitle) {
       mctx.fillStyle = C.ink; mctx.font = '600 20px "Bricolage Grotesque", sans-serif';
       mctx.fillText(ptitle, M.l + (W - M.l - M.r)/2, 34);
@@ -1548,7 +1548,7 @@
   $('viewRank').addEventListener('click', () => {
     if (!S.d) return;
     $('rankTitle').textContent = 'Full ranking — ' +
-      (S.mode === 'catalog' ? `${S.gene} (${S.state})` : (S.dataset || ''));
+      (S.mode === 'catalog' ? `${S.state} — ${S.gene}` : (S.dataset || ''));
     rankSort = { k: 'rank', dir: 1 };
     renderRankTable();
     rankModal.hidden = false;
