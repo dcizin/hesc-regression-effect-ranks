@@ -386,12 +386,8 @@
     beyond the plain top/bottom-N. Each guide's coefficient is first standardised
     by that guide's own background median/MAD (the guides.csv center/scale columns),
     so marks reflect this gene, not a guide's overall profile width; background
-    genes still legitimately show ~10–25 marks at the default 7σ. The
-    <b>tail lift</b> line under the title is mean |coef| of the guides ranking the
-    gene in their extreme 1% over the 5–10% shoulder bands, compared against the
-    800 random background genes; ~23% of background genes read "elevated" by
-    chance, and the second decimal is below the score's reliability, so read the
-    band, not a ranking. Coefficients are stored to 3 significant digits.</p>
+    genes still legitimately show ~10–25 marks at the default 7σ.
+    Coefficients are stored to 3 significant digits.</p>
   </div>
 </div>
 
@@ -756,9 +752,7 @@
             lower: names.map(s => s.toLowerCase()),
             tlower: target.map(s => s ? s.toLowerCase() : ''),
             nameToIdx: new Map(names.map((nm, p) => [nm, p])) };
-    M.t = S.mode === 'catalog' ? 74 : 54;   // room for the tail-lift line under the title
     computeOutliers();
-    computeLift();
     computeHits();
     applySearch();
     updateStageHeight();
@@ -838,50 +832,6 @@
       if (p !== undefined) d.outSet.add(p);
     }
     d.outStat = { total, maxZ: zs.length ? zs[0][1] : 0 };
-  }
-
-  // tail lift: per-gene signal score = mean |coef| of the guides ranking this gene
-  // in their extreme 1%, over mean |coef| of the 5-10% shoulder bands. Chosen over
-  // a fitted-curve R^2, which is ~0.93 for EVERY gene (rank is monotone in coef by
-  // construction) and separates hits from background WORSE than chance. AUROC vs
-  // the 800 random background genes: 0.88 (DE) / 0.92 (ES). Pool-independent
-  // (computed over all rows); split-half reliability ~0.6, so the band matters
-  // more than the second decimal — never rank genes by L.
-  const LIFT_BG = [[1.639,1],[1.657,2],[1.689,5],[1.721,10],[1.758,20],[1.789,30],
-                   [1.816,40],[1.845,50],[1.875,60],[1.906,70],[1.953,80],[2.031,90],
-                   [2.105,95],[2.184,98],[2.244,99]];
-  function liftPct(L) {
-    if (L <= LIFT_BG[0][0]) return 1;
-    if (L >= LIFT_BG[LIFT_BG.length - 1][0]) return 99;
-    for (let i = 1; i < LIFT_BG.length; i++)
-      if (L < LIFT_BG[i][0]) {
-        const [x0, y0] = LIFT_BG[i - 1], [x1, y1] = LIFT_BG[i];
-        return y0 + (y1 - y0) * (L - x0) / (x1 - x0);
-      }
-    return 99;
-  }
-  const liftBand = L => L < 1.90 ? 'typical' : L < 2.05 ? 'elevated'
-                       : L < 2.20 ? 'strong' : 'very strong';
-  function computeLift() {
-    const d = S.d; d.lift = null;
-    const nU = S.nRankUniverse;             // manifest value, never the pool-filtered fallback
-    if (S.mode !== 'catalog' || !nU || !d.useFile) return;
-    let tipSum = 0, tipN = 0, shSum = 0, shN = 0;
-    const t1 = 0.01 * nU, t99 = 0.99 * nU,
-          s5 = 0.05 * nU, s10 = 0.10 * nU, s90 = 0.90 * nU, s95 = 0.95 * nU;
-    for (const r of S.rows) {
-      const v = r[S.valueCol], k = r[S.rankField];
-      if (typeof v !== 'number' || !isFinite(v) ||
-          typeof k !== 'number' || !isFinite(k)) continue;
-      const a = Math.abs(v);
-      if (k < t1 || k >= t99) { tipSum += a; tipN++; }
-      else if ((k >= s5 && k < s10) || (k >= s90 && k < s95)) { shSum += a; shN++; }
-    }
-    if (tipN < 10 || shN < 20) return;
-    const sh = shSum / shN;
-    if (!(sh > 0)) return;
-    const L = (tipSum / tipN) / sh;
-    d.lift = { L, pct: liftPct(L), band: liftBand(L) };
   }
 
   // top/bottom hits, notebook-style: by rank, most-up first; slider-adjustable
@@ -1356,12 +1306,6 @@
     if (ptitle) {
       mctx.fillStyle = C.ink; mctx.font = '600 20px "Bricolage Grotesque", sans-serif';
       mctx.fillText(ptitle, M.l + (W - M.l - M.r)/2, 34);
-      if (d.lift) {
-        const p = d.lift.pct <= 1 ? '<1' : d.lift.pct >= 99 ? '>99' : Math.round(d.lift.pct);
-        mctx.fillStyle = C.muted; mctx.font = '500 13.5px "Bricolage Grotesque", sans-serif';
-        mctx.fillText(`tail lift ${d.lift.L.toFixed(2)}× (background 1.85×) — ` +
-          `${d.lift.band}: above ${p}% of background genes`, M.l + (W - M.l - M.r)/2, 56);
-      }
       mctx.fillStyle = C.ink; mctx.font = '500 18px "Bricolage Grotesque", sans-serif';
     }
     mctx.save();
