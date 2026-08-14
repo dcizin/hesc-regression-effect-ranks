@@ -93,7 +93,9 @@
     font: 500 12.5px 'Bricolage Grotesque', sans-serif;
     color: var(--hot); background: var(--hot-soft);
     border-radius: 5px; padding: 2px 8px 3px;
+    visibility: hidden; min-width: 82px; text-align: center;
   }
+  #pinOuts.show { visibility: visible; }
   #pinOuts:hover { background: var(--hot); color: var(--panel); }
   #search.has-pin { padding-right: 100px; }
 
@@ -256,7 +258,8 @@
   #dropzone strong { color: var(--ink); font-weight: 500; }
 
 
-  #ymodeCtl { margin-left: auto; }
+  #xmodeCtl { margin-left: auto; }
+  #xmodeCtl[hidden] + #ymodeCtl { margin-left: auto; }
   #helpBtn {
     width: 27px; height: 27px; border-radius: 50%; padding: 0; flex-shrink: 0;
     border: 1.5px solid var(--line); color: var(--muted);
@@ -323,14 +326,13 @@
         <button class="tog" data-g="pool" data-v="all">all</button></span>
       <span id="matchInfo" class="mono"></span>
     </div>
+    <div class="ctl" id="xmodeCtl" hidden><span>x axis</span><span class="seg">
+      <button class="tog on" data-g="xmode" data-v="coef">coef</button>
+      <button class="tog" data-g="xmode" data-v="std">standardized</button></span>
+    </div>
     <div class="ctl" id="ymodeCtl"><span>y axis</span><span class="seg">
       <button class="tog" data-g="ymode" data-v="pct">percentile</button>
       <button class="tog on" data-g="ymode" data-v="rank">raw rank</button></span>
-      <span class="seg" id="outCtl" hidden><button class="tog on" id="outBtn"
-        title="mark guides whose coef is extreme relative to guides at a similar rank">outliers</button></span>
-      <span id="zWrap" hidden><input type="range" id="zThresh" min="1" max="9" step="0.5" value="7"
-        title="how extreme vs rank peers (robust σ) before a guide is marked"><span id="zVal" class="mono">7.0σ</span></span>
-      <button id="pinOuts" hidden title="pin every currently marked outlier">pin these</button>
     </div>
     <div class="ctl" id="basisCtl" hidden><span>rank by</span><span class="seg">
       <button class="tog on" data-g="basis" data-v="signed">value</button>
@@ -393,8 +395,12 @@
     beyond the plain top/bottom-N. Each guide's coefficient is first standardised
     by that guide's own background median/MAD (the guides.csv center/scale columns),
     so marks reflect this gene, not a guide's overall profile width; background
-    genes still legitimately show ~10–25 marks at the default 7σ.
-    Coefficients are stored to 3 significant digits.</p>
+    genes still legitimately show ~10–25 marks at the default 7σ. The
+    <b>standardized</b> x-axis view plots those per-guide σ units directly and
+    shades the chance corridor (±the slider's σ at every rank) — the one view
+    where a fixed region separates signal from chance, since raw coefficients mix
+    ~10× different guide scales; points on the warm ground are beyond chance for
+    their rank. Coefficients are stored to 3 significant digits.</p>
   </div>
 </div>
 
@@ -408,6 +414,12 @@
       title="label the top/bottom guides by rank">top hits</button></span>
     <span id="nLabelWrap"><input type="range" id="nLabel" min="1" max="75" value="15"
       title="how many top/bottom guides to mark"><span id="nLabelVal" class="mono">15</span></span>
+  </div>
+  <div class="ctl" id="outlierCtl" hidden><span class="seg"><button class="tog on" id="outBtn"
+      title="mark guides whose coef is extreme relative to guides at a similar rank">outliers</button></span>
+    <span id="zWrap" hidden><input type="range" id="zThresh" min="1" max="9" step="0.5" value="7"
+      title="how extreme vs rank peers (robust σ) before a guide is marked"><span id="zVal" class="mono">7.0σ</span></span>
+    <button id="pinOuts" title="pin every currently marked outlier">pin these</button>
   </div>
 </div>
 
@@ -439,8 +451,8 @@
     rows: [], fields: [],
     mode: 'generic',                  // 'generic' (dropped file) | 'catalog' (manifest gene)
     nameCol: null, valueCol: null, rankField: null,
-    basis: 'signed', ymode: 'rank', ysrc: 'computed', pool: 'active', labels: 'top', nLabel: 15,
-    out: 'on', outZ: 7,
+    basis: 'signed', ymode: 'rank', xmode: 'coef', ysrc: 'computed', pool: 'active',
+    labels: 'top', nLabel: 15, out: 'on', outZ: 7,
     manifest: null, state: null, gene: null,
     guideMeta: {},                    // state -> {guide:[], target:[], tlower:[], active:[]}
     nRankUniverse: null,
@@ -716,10 +728,20 @@
   function computeData() {
     const meta = S.mode === 'catalog' ? S.guideMeta[S.state] : null;
     const useFile = S.ysrc === 'file' && S.rankField;
-    const idx = [], x = [], fr = [], names = [], target = [], activeA = [];
+    // standardized x: per-guide (coef - center)/scale from guides.csv — all guides
+    // share one null envelope there, so the corridor shading is per-point valid;
+    // degenerate guides (all-zero control) leave the standardized view
+    const useStd = S.xmode === 'std' && meta && meta.scale && meta.scale.some(s => s != null);
+    const idx = [], x = [], rawx = [], fr = [], names = [], target = [], activeA = [];
     S.rows.forEach((r, i) => {
-      const v = r[S.valueCol];
+      let v = r[S.valueCol];
       if (typeof v !== 'number' || !isFinite(v)) return;
+      const raw = v;
+      if (useStd) {
+        const sc = meta.scale[i];
+        if (sc == null || sc <= 1e-6) return;
+        v = (v - meta.center[i]) / sc;
+      }
       let rv = null;
       if (useFile) {
         rv = r[S.rankField];
@@ -728,7 +750,7 @@
       const act = meta ? meta.active[i]
                        : ('active' in r && r.active != null ? (truthy(r.active) ? 1 : 0) : null);
       if (S.pool === 'active' && act === 0) return;
-      idx.push(i); x.push(v); fr.push(rv);
+      idx.push(i); x.push(v); rawx.push(raw); fr.push(rv);
       names.push(meta ? meta.guide[i]
                       : (S.nameCol ? String(r[S.nameCol]) : 'row ' + (i + 1)));
       target.push(meta ? meta.target[i]
@@ -754,7 +776,7 @@
       for (let k = 0; k < n; k++)
         if (target[k] && target[k].split('|').includes(S.gene)) self[k] = 1;
     }
-    S.d = { idx, x, names, pct, rank, n, target, active: activeA, self,
+    S.d = { idx, x, rawx, names, pct, rank, n, target, active: activeA, self,
             useFile, nU,
             lower: names.map(s => s.toLowerCase()),
             tlower: target.map(s => s ? s.toLowerCase() : ''),
@@ -774,7 +796,7 @@
   // guides light up on every gene. Degenerate guides (the all-zero control) are
   // dropped from the pass. MAD resists contamination by the hits themselves.
   function computeOutliers() {
-    const d = S.d; d.outSet = null; d.z = null; d.outStat = null;
+    const d = S.d; d.outSet = null; d.z = null; d.outStat = null; d.corridor = null;
     if (!d.useFile) return;
     const meta = S.mode === 'catalog' ? S.guideMeta[S.state] : null;
     const std = meta && meta.scale && meta.scale.some(s => s != null);
@@ -805,6 +827,10 @@
       med.push(mk);
       sig.push(Math.max(1.4826 * d3.quantileSorted(dev, 0.5), 1e-9));
     }
+    // corridor (standardized units): drawable as the ±Zσ shading in the
+    // standardized x view, where every guide shares the same null envelope
+    if (std) d.corridor = [...centers].sort((a, b) => a - b)
+      .map((c, j) => [rs[ord[c]], med[j], sig[j]]);
     const zAll = new Float64Array(n);
     let ci = 0;
     for (let p = 0; p < n; p++) {
@@ -1136,7 +1162,8 @@
     const oz = d.z ? d.z[i] : null;
     tip.innerHTML = '<b>' + esc(d.names[i]) + '</b>' +
       (d.active[i] ? ' <span class="star">★</span>' : '') + '<br>' +
-      esc(S.valueCol) + ' <b>' + fmt(d.x[i]) + '</b><br>' + rankLine +
+      esc(S.valueCol) + ' <b>' + fmt(d.rawx[i]) + '</b>' +
+      (S.xmode === 'std' ? ' (' + fmt(d.x[i]) + 'σ)' : '') + '<br>' + rankLine +
       (d.target[i] ? '<br>target ' + esc(d.target[i]) : '') +
       (d.outSet && d.outSet.has(i)
         ? '<br>coef outlier: ' + (oz > 0 ? '+' : '−') + Math.abs(oz).toFixed(1) + 'σ vs rank peers' : '');
@@ -1276,8 +1303,11 @@
     // i.e. a dropped file with no rank column; a rank column always wins.
     $('basisCtl').hidden = !!S.rankField;
     $('poolCtl').hidden = !(S.mode === 'catalog' || S.fields.includes('active'));
-    $('outCtl').hidden = !S.rankField;
+    $('outlierCtl').hidden = !S.rankField;
     $('zWrap').hidden = !S.rankField || S.out !== 'on';
+    const meta = S.guideMeta[S.state];
+    $('xmodeCtl').hidden = !(S.mode === 'catalog' && meta &&
+                             meta.scale && meta.scale.some(s => s != null));
   }
 
   // ---------- drawing ----------
@@ -1316,7 +1346,9 @@
     // axis titles
     mctx.fillStyle = C.ink; mctx.font = '500 18px "Bricolage Grotesque", sans-serif';
     mctx.textAlign = 'center'; mctx.textBaseline = 'alphabetic';
-    const xlab = S.mode === 'catalog' ? 'Regression coef' : S.valueCol;
+    const xlab = S.mode === 'catalog'
+      ? (S.xmode === 'std' ? 'Regression coef — per-guide σ (standardized)' : 'Regression coef')
+      : S.valueCol;
     mctx.fillText(xlab, M.l + (W - M.l - M.r)/2, H - 8);
     const ptitle = S.mode === 'catalog' ? `${S.state} — ${S.gene}` : (S.dataset || '');
     if (ptitle) {
@@ -1336,6 +1368,43 @@
     // clip plot area for points
     mctx.save();
     mctx.beginPath(); mctx.rect(M.l, M.t, W - M.l - M.r, H - M.t - M.b); mctx.clip();
+
+    // chance corridor (standardized x view only): the ±Zσ band the outlier marks
+    // are measured against — every guide shares this null envelope after per-guide
+    // standardisation, so points on the warm ground are beyond chance for their
+    // rank, and the band tracks the σ slider
+    if (S.xmode === 'std' && S.out === 'on' && d.corridor) {
+      const P = d.corridor, Z = S.outZ;
+      const rY = S.ymode === 'pct'
+        ? (d.nU > 1 ? r => t.applyY(sy(r / (d.nU - 1))) : () => t.applyY(sy(0.5)))
+        : r => t.applyY(sy(r));
+      const xX = v => t.applyX(sx(v));
+      const corridor = () => {
+        mctx.moveTo(xX(P[0][1] - Z * P[0][2]), rY(P[0][0]));
+        for (let k = 1; k < P.length; k++) mctx.lineTo(xX(P[k][1] - Z * P[k][2]), rY(P[k][0]));
+        for (let k = P.length - 1; k >= 0; k--) mctx.lineTo(xX(P[k][1] + Z * P[k][2]), rY(P[k][0]));
+        mctx.closePath();
+      };
+      mctx.beginPath();
+      mctx.rect(M.l, M.t, W - M.l - M.r, H - M.t - M.b);
+      corridor();
+      mctx.fillStyle = 'rgba(212,105,30,0.055)';
+      mctx.fill('evenodd');
+      mctx.beginPath();
+      corridor();
+      mctx.fillStyle = 'rgba(255,255,255,0.5)';
+      mctx.fill();
+      mctx.strokeStyle = 'rgba(212,105,30,0.35)';
+      mctx.lineWidth = 1;
+      mctx.stroke();
+      mctx.setLineDash([4, 4]);
+      mctx.strokeStyle = 'rgba(34,53,43,0.30)';
+      mctx.beginPath();
+      mctx.moveTo(xX(P[0][1]), rY(P[0][0]));
+      for (let k = 1; k < P.length; k++) mctx.lineTo(xX(P[k][1]), rY(P[k][0]));
+      mctx.stroke();
+      mctx.setLineDash([]);
+    }
 
     const labeling = S.labels === 'top';
     const R = 2.6, TAU = Math.PI * 2;
@@ -1482,7 +1551,7 @@
     // exist (up to the lasso's 200-chip sanity cap), label flips when all are pinned
     const os = S.out === 'on' ? d.outSet : null;
     const showPO = !!(os && os.size && os.size <= 200);
-    $('pinOuts').hidden = !showPO;
+    $('pinOuts').classList.toggle('show', showPO);
     if (showPO) {
       let all = true;
       for (const k of os) if (!S.pinned.has(d.names[k])) { all = false; break; }
