@@ -136,9 +136,10 @@
     padding: 6px 20px 10px;
     border-bottom: 1px solid var(--line);
     font-size: 14px; color: var(--muted);
+    white-space: nowrap; flex-wrap: wrap; row-gap: 4px;
   }
   #counts { margin-left: auto; flex-shrink: 0; }
-  #labelInfo, #selfInfo, #envInfo { display: inline-flex; gap: 16px; }
+  #labelInfo, #selfInfo { display: inline-flex; gap: 16px; }
   .key { display: inline-flex; align-items: center; gap: 6px; }
   #nLabelWrap { display: inline-flex; align-items: center; gap: 6px; }
   #nLabel {
@@ -315,6 +316,8 @@
     <div class="ctl" id="ymodeCtl"><span>y axis</span><span class="seg">
       <button class="tog" data-g="ymode" data-v="pct">percentile</button>
       <button class="tog on" data-g="ymode" data-v="rank">raw rank</button></span>
+      <span class="seg" id="envCtl" hidden><button class="tog on" id="envBtn"
+        title="shade where to look: ranks in the top/bottom 1%, or coefs outside the middle 98% of guides at a similar rank">envelope</button></span>
     </div>
     <div class="ctl" id="basisCtl" hidden><span>rank by</span><span class="seg">
       <button class="tog on" data-g="basis" data-v="signed">value</button>
@@ -370,14 +373,15 @@
     </ol>
     <p class="fine">Genes offered in the picker are those with ≥ 15 guides significant at
     FDR &lt; 0.05, plus a curated set, plus a seeded random sample of the remaining
-    genes (tagged <i>random</i>) as negative controls — genes where no guide is
-    expected to move expression much. All guides are always included; the guide pool
-    opens on <b>active</b>. Coefficients are stored to 3 significant digits.</p>
+    genes as negative controls. All guides are always included; the guide pool opens
+    on <b>active</b>. The <b>envelope</b> shade marks where to look: ranks in the
+    top/bottom 1%, or coefficients outside the middle 98% of guides at a similar
+    rank. Coefficients are stored to 3 significant digits.</p>
   </div>
 </div>
 
 <div id="colstrip" hidden><span>column</span><span id="cols" style="display:flex;gap:18px"></span></div>
-<div id="infobar" hidden><span id="labelInfo"></span><span id="selfInfo"></span><span id="envInfo"></span>
+<div id="infobar" hidden><span id="labelInfo"></span><span id="selfInfo"></span>
   <span id="counts" class="mono"></span>
   <button class="filebtn" id="clearPins" disabled>clear all pins</button>
   <button id="lassoBtn" hidden
@@ -387,10 +391,6 @@
     <button class="tog" data-g="labels" data-v="off">off</button></span>
     <span id="nLabelWrap"><input type="range" id="nLabel" min="1" max="75" value="15"
       title="how many top/bottom guides to mark"><span id="nLabelVal" class="mono">15</span></span>
-  </div>
-  <div class="ctl" id="envCtl" hidden><span>envelope</span><span class="seg">
-    <button class="tog on" data-g="env" data-v="on">on</button>
-    <button class="tog" data-g="env" data-v="off">off</button></span>
   </div>
 </div>
 
@@ -547,7 +547,6 @@
     fetch(MANIFEST_URL).then(r => { if (!r.ok) throw 0; return r.json(); }).then(m => {
       if (!m.states || !Object.keys(m.states).length) return;
       S.manifest = m;
-      for (const st of Object.values(m.states)) st.randomSet = new Set(st.random || []);
       const sb = $('stateBtns');
       sb.innerHTML = '';
       Object.keys(m.states).forEach((st, i) => {
@@ -621,9 +620,8 @@
   let gSel = 0, gListState = null;      // which state's genes the list DOM currently holds
 
   function buildGeneList() {
-    const st = S.manifest.states[S.state];
-    gList.innerHTML = st.genes.map(g => `<button data-gene="${esc(g)}">${esc(g)}` +
-      `${st.randomSet.has(g) ? ' <span class="n">random</span>' : ''}</button>`).join('');
+    const genes = S.manifest.states[S.state].genes;
+    gList.innerHTML = genes.map(g => `<button data-gene="${esc(g)}">${esc(g)}</button>`).join('');
     gListState = S.state;
   }
 
@@ -748,9 +746,10 @@
     updateStageHeight();
   }
 
-  // typical-rank envelope: moving-window rank quantiles along the coef axis, computed
-  // over ALL guides (pool-independent) so the band is a stable reference; needs a
-  // file-supplied rank (catalog mode), where y is independent of the x-sort
+  // "where to look" envelope: quantile curves of coef computed in adaptive windows
+  // sliding along the RANK axis, over ALL guides (pool-independent). The shading
+  // marks the complement of the typical zone: guides whose rank is in the extreme
+  // tails, or whose coef falls outside the middle 98% of guides at a similar rank.
   function computeEnvelope() {
     const d = S.d; d.env = null;
     if (!d.useFile) return;
@@ -762,27 +761,26 @@
     }
     const n = xs.length;
     if (n < 40) return;
-    const ord = d3.range(n).sort((a, b) => xs[a] - xs[b]);
-    const sx2 = ord.map(i => xs[i]), sr = ord.map(i => rs[i]);
-    // adaptive window: capped in x-span (bandwidth) so the sparse coef tails stay
-    // local instead of dragging the dense centre along, with a count floor for
-    // stable quantiles and a count cap for smoothness in the dense middle
-    const span = sx2[Math.floor(0.995 * (n - 1))] - sx2[Math.ceil(0.005 * (n - 1))];
-    const bw = (span || (sx2[n - 1] - sx2[0]) || 1) / 12;
+    const nU = d.nU || (d3.max(rs) + 1);
+    const rTop = 0.01 * (nU - 1), rBot = 0.99 * (nU - 1);  // "very high / very low" strips
+    const ord = d3.range(n).sort((a, b) => rs[a] - rs[b]);
+    const sr = ord.map(i => rs[i]), sxv = ord.map(i => xs[i]);
+    // adaptive windows: capped in rank-span (bandwidth) so sparse stretches stay
+    // local, with a count floor for stable quantiles and a cap for smoothness
+    const span = sr[Math.floor(0.995 * (n - 1))] - sr[Math.ceil(0.005 * (n - 1))];
+    const bw = (span || (sr[n - 1] - sr[0]) || 1) / 12;
     const WMIN = Math.min(n, Math.max(40, Math.round(n / 200)));
     const WMAX = Math.max(WMIN, Math.round(n / 16));
-    // evaluation grid: equal-count positions over the central 99% of the coef axis —
-    // the band describes the typical bulk; the extreme tails are exceptional by
-    // definition (and too sparse for stable quantiles), so hits overshoot its ends
-    const i0 = Math.ceil(0.005 * (n - 1)), i1 = Math.floor(0.995 * (n - 1));
+    const iA = d3.bisectLeft(sr, rTop), iB = d3.bisectRight(sr, rBot) - 1;
+    if (iB - iA < 8) return;
     const centers = new Set();
-    const NP = Math.min(140, i1 - i0 + 1);
-    for (let k = 0; k < NP; k++) centers.add(i0 + Math.round(k * (i1 - i0) / (NP - 1)));
+    const NP = Math.min(140, iB - iA + 1);
+    for (let k = 0; k < NP; k++) centers.add(iA + Math.round(k * (iB - iA) / (NP - 1)));
     const pts = [];
     for (const c of [...centers].sort((a, b) => a - b)) {
-      const xc = sx2[c];
-      let hL = c - d3.bisectLeft(sx2, xc - bw);
-      let hR = d3.bisectRight(sx2, xc + bw) - 1 - c;
+      const rc = sr[c];
+      let hL = c - d3.bisectLeft(sr, rc - bw);
+      let hR = d3.bisectRight(sr, rc + bw) - 1 - c;
       const tot = hL + hR + 1;
       if (tot > WMAX) {                       // shrink both sides proportionally
         const f = (WMAX - 1) / (tot - 1);
@@ -795,11 +793,11 @@
         hR += addR; need -= addR;
         hL += Math.min(c - hL, need);
       }
-      const win = sr.slice(c - hL, c + hR + 1).sort((a, b) => a - b);
+      const win = sxv.slice(c - hL, c + hR + 1).sort((a, b) => a - b);
       const q = p => win[Math.min(win.length - 1, Math.round(p * (win.length - 1)))];
-      pts.push({ x: xc, lo: q(0.05), mid: q(0.5), hi: q(0.95) });
+      pts.push({ r: rc, lo: q(0.01), mid: q(0.5), hi: q(0.99) });
     }
-    d.env = pts;
+    d.env = { pts, rTop, rBot };
   }
 
   // top/bottom hits, notebook-style: by rank, most-up first; slider-adjustable
@@ -1045,9 +1043,6 @@
     $('labelInfo').innerHTML = (S.labels === 'top')
       ? key(COL.up, `top ${d.topIdx.length} upregulating guides`) +
         key(COL.down, `top ${d.botIdx.length} downregulating guides`) : '';
-    $('envInfo').innerHTML = (S.env === 'on' && d.env)
-      ? `<span class="key"><i style="background:rgba(34,53,43,0.14); border-radius:2px;` +
-        ` border:1px dashed rgba(34,53,43,0.45)"></i>typical band — middle 90% of all guides</span>` : '';
     $('nLabelWrap').hidden = S.labels !== 'top';
     $('counts').textContent = S.mode === 'catalog' ? ''
       : (S.dataset ? S.dataset + ' · ' : '') + fmtI(d.n) + ' points';
@@ -1200,12 +1195,17 @@
       document.querySelectorAll(`.tog[data-g="${g}"]`).forEach(x => x.classList.toggle('on', x.dataset.v === v));
       if (g === 'state') { switchState(v); return; }
       if (g === 'labels') { if (S.d) { applySearch(); updateStageHeight(); drawAll(); } return; }
-      if (g === 'env') { if (S.d) { applySearch(); drawAll(); } return; }
       syncCtls();
       if (S.d) { computeData(); resetView(); }
     }));
   }
   bindToggles(document);
+
+  $('envBtn').addEventListener('click', () => {
+    S.env = S.env === 'on' ? 'off' : 'on';
+    $('envBtn').classList.toggle('on', S.env === 'on');
+    if (S.d) drawAll();
+  });
 
   function syncCtls() {
     // "rank by" (value vs |value|) only applies when we compute ranks ourselves,
@@ -1257,15 +1257,6 @@
     if (ptitle) {
       mctx.fillStyle = C.ink; mctx.font = '600 20px "Bricolage Grotesque", sans-serif';
       mctx.fillText(ptitle, M.l + (W - M.l - M.r)/2, 34);
-      // random background genes announce themselves so a flat plot reads as expected
-      if (S.mode === 'catalog' && S.manifest &&
-          S.manifest.states[S.state].randomSet.has(S.gene)) {
-        const tw = mctx.measureText(ptitle).width;
-        mctx.fillStyle = C.muted; mctx.font = '500 14px "Bricolage Grotesque", sans-serif';
-        mctx.textAlign = 'left';
-        mctx.fillText('random background gene', M.l + (W - M.l - M.r)/2 + tw/2 + 12, 34);
-        mctx.textAlign = 'center';
-      }
       mctx.fillStyle = C.ink; mctx.font = '500 18px "Bricolage Grotesque", sans-serif';
     }
     mctx.save();
@@ -1281,26 +1272,43 @@
     mctx.save();
     mctx.beginPath(); mctx.rect(M.l, M.t, W - M.l - M.r, H - M.t - M.b); mctx.clip();
 
-    // typical band: shaded moving 5–95% rank envelope + dashed running median,
-    // drawn under the points so outliers (the guides worth looking at) stand off it
+    // envelope: shade everything OUTSIDE the typical zone (even-odd fill of the
+    // plot rect minus the typical polygon), so extreme-rank guides and coef
+    // outliers sit on tinted ground while the ordinary bulk stays on plain paper
     if (S.env === 'on' && d.env) {
-      const P = d.env;
-      const yv = S.ymode === 'pct'
-        ? (d.nU > 1 ? r => r / (d.nU - 1) : () => 0.5) : r => r;
-      const px = p => t.applyX(sx(p.x)), py = v => t.applyY(sy(yv(v)));
+      const P = d.env.pts;
+      const rY = S.ymode === 'pct'
+        ? (d.nU > 1 ? r => t.applyY(sy(r / (d.nU - 1))) : () => t.applyY(sy(0.5)))
+        : r => t.applyY(sy(r));
+      const xX = v => t.applyX(sx(v));
+      const corridor = () => {
+        mctx.moveTo(xX(P[0].lo), rY(P[0].r));
+        for (let k = 1; k < P.length; k++) mctx.lineTo(xX(P[k].lo), rY(P[k].r));
+        for (let k = P.length - 1; k >= 0; k--) mctx.lineTo(xX(P[k].hi), rY(P[k].r));
+        mctx.closePath();
+      };
       mctx.beginPath();
-      mctx.moveTo(px(P[0]), py(P[0].hi));
-      for (let k = 1; k < P.length; k++) mctx.lineTo(px(P[k]), py(P[k].hi));
-      for (let k = P.length - 1; k >= 0; k--) mctx.lineTo(px(P[k]), py(P[k].lo));
-      mctx.closePath();
-      mctx.fillStyle = 'rgba(34,53,43,0.07)';
+      mctx.rect(M.l, M.t, W - M.l - M.r, H - M.t - M.b);
+      corridor();
+      mctx.fillStyle = 'rgba(212,105,30,0.055)';
+      mctx.fill('evenodd');
+      // the corridor itself gets a bright fill + crisp edge so the typical/atypical
+      // boundary stays visible even when the corridor is a thin sliver (strong genes
+      // zoomed out) and the warm wash would otherwise read as uniform background
+      mctx.beginPath();
+      corridor();
+      mctx.fillStyle = 'rgba(255,255,255,0.5)';
       mctx.fill();
+      mctx.strokeStyle = 'rgba(212,105,30,0.35)';
+      mctx.lineWidth = 1;
+      mctx.stroke();
+      // dashed running-median spine for orientation
       mctx.strokeStyle = 'rgba(34,53,43,0.30)';
       mctx.lineWidth = 1;
       mctx.setLineDash([4, 4]);
       mctx.beginPath();
-      mctx.moveTo(px(P[0]), py(P[0].mid));
-      for (let k = 1; k < P.length; k++) mctx.lineTo(px(P[k]), py(P[k].mid));
+      mctx.moveTo(xX(P[0].mid), rY(P[0].r));
+      for (let k = 1; k < P.length; k++) mctx.lineTo(xX(P[k].mid), rY(P[k].r));
       mctx.stroke();
       mctx.setLineDash([]);
     }
