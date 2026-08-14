@@ -138,7 +138,7 @@
     font-size: 14px; color: var(--muted);
   }
   #counts { margin-left: auto; flex-shrink: 0; }
-  #labelInfo, #selfInfo { display: inline-flex; gap: 16px; }
+  #labelInfo, #selfInfo, #envInfo { display: inline-flex; gap: 16px; }
   .key { display: inline-flex; align-items: center; gap: 6px; }
   #nLabelWrap { display: inline-flex; align-items: center; gap: 6px; }
   #nLabel {
@@ -308,8 +308,8 @@
         <div id="guideSub" class="combolist" hidden></div>
       </div>
       <span class="seg" id="poolCtl" hidden>
-        <button class="tog on" data-g="pool" data-v="all">all</button>
-        <button class="tog" data-g="pool" data-v="active">active <span class="star">★</span></button></span>
+        <button class="tog on" data-g="pool" data-v="active">active <span class="star">★</span></button>
+        <button class="tog" data-g="pool" data-v="all">all</button></span>
       <span id="matchInfo" class="mono"></span>
     </div>
     <div class="ctl" id="ymodeCtl"><span>y axis</span><span class="seg">
@@ -369,13 +369,15 @@
       the <b>active</b> filter keeps only guides with validated on-target knockdown.</li>
     </ol>
     <p class="fine">Genes offered in the picker are those with ≥ 15 guides significant at
-    FDR &lt; 0.05, plus a curated set; all guides are always shown. Coefficients are
-    stored to 3 significant digits.</p>
+    FDR &lt; 0.05, plus a curated set, plus a seeded random sample of the remaining
+    genes (tagged <i>random</i>) as negative controls — genes where no guide is
+    expected to move expression much. All guides are always included; the guide pool
+    opens on <b>active</b>. Coefficients are stored to 3 significant digits.</p>
   </div>
 </div>
 
 <div id="colstrip" hidden><span>column</span><span id="cols" style="display:flex;gap:18px"></span></div>
-<div id="infobar" hidden><span id="labelInfo"></span><span id="selfInfo"></span>
+<div id="infobar" hidden><span id="labelInfo"></span><span id="selfInfo"></span><span id="envInfo"></span>
   <span id="counts" class="mono"></span>
   <button class="filebtn" id="clearPins" disabled>clear all pins</button>
   <button id="lassoBtn" hidden
@@ -385,6 +387,10 @@
     <button class="tog" data-g="labels" data-v="off">off</button></span>
     <span id="nLabelWrap"><input type="range" id="nLabel" min="1" max="75" value="15"
       title="how many top/bottom guides to mark"><span id="nLabelVal" class="mono">15</span></span>
+  </div>
+  <div class="ctl" id="envCtl" hidden><span>envelope</span><span class="seg">
+    <button class="tog on" data-g="env" data-v="on">on</button>
+    <button class="tog" data-g="env" data-v="off">off</button></span>
   </div>
 </div>
 
@@ -416,7 +422,8 @@
     rows: [], fields: [],
     mode: 'generic',                  // 'generic' (dropped file) | 'catalog' (manifest gene)
     nameCol: null, valueCol: null, rankField: null,
-    basis: 'signed', ymode: 'rank', ysrc: 'computed', pool: 'all', labels: 'top', nLabel: 15,
+    basis: 'signed', ymode: 'rank', ysrc: 'computed', pool: 'active', labels: 'top', nLabel: 15,
+    env: 'on',
     manifest: null, state: null, gene: null,
     guideMeta: {},                    // state -> {guide:[], target:[], tlower:[], active:[]}
     nRankUniverse: null,
@@ -540,6 +547,7 @@
     fetch(MANIFEST_URL).then(r => { if (!r.ok) throw 0; return r.json(); }).then(m => {
       if (!m.states || !Object.keys(m.states).length) return;
       S.manifest = m;
+      for (const st of Object.values(m.states)) st.randomSet = new Set(st.random || []);
       const sb = $('stateBtns');
       sb.innerHTML = '';
       Object.keys(m.states).forEach((st, i) => {
@@ -613,8 +621,9 @@
   let gSel = 0, gListState = null;      // which state's genes the list DOM currently holds
 
   function buildGeneList() {
-    const genes = S.manifest.states[S.state].genes;
-    gList.innerHTML = genes.map(g => `<button data-gene="${esc(g)}">${esc(g)}</button>`).join('');
+    const st = S.manifest.states[S.state];
+    gList.innerHTML = st.genes.map(g => `<button data-gene="${esc(g)}">${esc(g)}` +
+      `${st.randomSet.has(g) ? ' <span class="n">random</span>' : ''}</button>`).join('');
     gListState = S.state;
   }
 
@@ -733,9 +742,40 @@
             lower: names.map(s => s.toLowerCase()),
             tlower: target.map(s => s ? s.toLowerCase() : ''),
             nameToIdx: new Map(names.map((nm, p) => [nm, p])) };
+    computeEnvelope();
     computeHits();
     applySearch();
     updateStageHeight();
+  }
+
+  // typical-rank envelope: moving-window rank quantiles along the coef axis, computed
+  // over ALL guides (pool-independent) so the band is a stable reference; needs a
+  // file-supplied rank (catalog mode), where y is independent of the x-sort
+  function computeEnvelope() {
+    const d = S.d; d.env = null;
+    if (!d.useFile) return;
+    const xs = [], rs = [];
+    for (const r of S.rows) {
+      const v = r[S.valueCol], rv = r[S.rankField];
+      if (typeof v === 'number' && isFinite(v) &&
+          typeof rv === 'number' && isFinite(rv)) { xs.push(v); rs.push(rv); }
+    }
+    const n = xs.length;
+    if (n < 40) return;
+    const ord = d3.range(n).sort((a, b) => xs[a] - xs[b]);
+    const w = Math.min(n, Math.max(60, Math.round(n / 16)));
+    const NP = Math.min(140, n);
+    const pts = [];
+    for (let k = 0; k < NP; k++) {
+      const c = Math.round(k * (n - 1) / (NP - 1));
+      const lo = Math.max(0, Math.min(n - w, c - (w >> 1)));
+      const win = [];
+      for (let m = lo; m < lo + w; m++) win.push(rs[ord[m]]);
+      win.sort((a, b) => a - b);
+      const q = p => win[Math.min(w - 1, Math.round(p * (w - 1)))];
+      pts.push({ x: xs[ord[c]], lo: q(0.05), mid: q(0.5), hi: q(0.95) });
+    }
+    d.env = pts;
   }
 
   // top/bottom hits, notebook-style: by rank, most-up first; slider-adjustable
@@ -981,6 +1021,9 @@
     $('labelInfo').innerHTML = (S.labels === 'top')
       ? key(COL.up, `top ${d.topIdx.length} upregulating guides`) +
         key(COL.down, `top ${d.botIdx.length} downregulating guides`) : '';
+    $('envInfo').innerHTML = (S.env === 'on' && d.env)
+      ? `<span class="key"><i style="background:rgba(34,53,43,0.14); border-radius:2px;` +
+        ` border:1px dashed rgba(34,53,43,0.45)"></i>typical band — middle 90% of all guides</span>` : '';
     $('nLabelWrap').hidden = S.labels !== 'top';
     $('counts').textContent = S.mode === 'catalog' ? ''
       : (S.dataset ? S.dataset + ' · ' : '') + fmtI(d.n) + ' points';
@@ -1133,6 +1176,7 @@
       document.querySelectorAll(`.tog[data-g="${g}"]`).forEach(x => x.classList.toggle('on', x.dataset.v === v));
       if (g === 'state') { switchState(v); return; }
       if (g === 'labels') { if (S.d) { applySearch(); updateStageHeight(); drawAll(); } return; }
+      if (g === 'env') { if (S.d) { applySearch(); drawAll(); } return; }
       syncCtls();
       if (S.d) { computeData(); resetView(); }
     }));
@@ -1144,6 +1188,7 @@
     // i.e. a dropped file with no rank column; a rank column always wins.
     $('basisCtl').hidden = !!S.rankField;
     $('poolCtl').hidden = !(S.mode === 'catalog' || S.fields.includes('active'));
+    $('envCtl').hidden = !S.rankField;
   }
 
   // ---------- drawing ----------
@@ -1188,6 +1233,15 @@
     if (ptitle) {
       mctx.fillStyle = C.ink; mctx.font = '600 20px "Bricolage Grotesque", sans-serif';
       mctx.fillText(ptitle, M.l + (W - M.l - M.r)/2, 34);
+      // random background genes announce themselves so a flat plot reads as expected
+      if (S.mode === 'catalog' && S.manifest &&
+          S.manifest.states[S.state].randomSet.has(S.gene)) {
+        const tw = mctx.measureText(ptitle).width;
+        mctx.fillStyle = C.muted; mctx.font = '500 14px "Bricolage Grotesque", sans-serif';
+        mctx.textAlign = 'left';
+        mctx.fillText('random background gene', M.l + (W - M.l - M.r)/2 + tw/2 + 12, 34);
+        mctx.textAlign = 'center';
+      }
       mctx.fillStyle = C.ink; mctx.font = '500 18px "Bricolage Grotesque", sans-serif';
     }
     mctx.save();
@@ -1202,6 +1256,30 @@
     // clip plot area for points
     mctx.save();
     mctx.beginPath(); mctx.rect(M.l, M.t, W - M.l - M.r, H - M.t - M.b); mctx.clip();
+
+    // typical band: shaded moving 5–95% rank envelope + dashed running median,
+    // drawn under the points so outliers (the guides worth looking at) stand off it
+    if (S.env === 'on' && d.env) {
+      const P = d.env;
+      const yv = S.ymode === 'pct'
+        ? (d.nU > 1 ? r => r / (d.nU - 1) : () => 0.5) : r => r;
+      const px = p => t.applyX(sx(p.x)), py = v => t.applyY(sy(yv(v)));
+      mctx.beginPath();
+      mctx.moveTo(px(P[0]), py(P[0].hi));
+      for (let k = 1; k < P.length; k++) mctx.lineTo(px(P[k]), py(P[k].hi));
+      for (let k = P.length - 1; k >= 0; k--) mctx.lineTo(px(P[k]), py(P[k].lo));
+      mctx.closePath();
+      mctx.fillStyle = 'rgba(34,53,43,0.07)';
+      mctx.fill();
+      mctx.strokeStyle = 'rgba(34,53,43,0.30)';
+      mctx.lineWidth = 1;
+      mctx.setLineDash([4, 4]);
+      mctx.beginPath();
+      mctx.moveTo(px(P[0]), py(P[0].mid));
+      for (let k = 1; k < P.length; k++) mctx.lineTo(px(P[k]), py(P[k].mid));
+      mctx.stroke();
+      mctx.setLineDash([]);
+    }
 
     const labeling = S.labels === 'top';
     const R = 2.6, TAU = Math.PI * 2;
