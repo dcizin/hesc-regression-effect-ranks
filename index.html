@@ -141,25 +141,28 @@
   #counts { margin-left: auto; flex-shrink: 0; }
   #labelInfo, #selfInfo { display: inline-flex; gap: 16px; }
   .key { display: inline-flex; align-items: center; gap: 6px; }
-  #nLabelWrap { display: inline-flex; align-items: center; gap: 6px; }
-  #nLabel {
+  #nLabelWrap, #zWrap { display: inline-flex; align-items: center; gap: 6px; }
+  #nLabel, #zThresh {
     -webkit-appearance: none; appearance: none;
     width: 80px; height: 4px; border-radius: 2px;
     background: var(--line); padding: 0;
   }
-  #nLabel::-webkit-slider-thumb {
+  #zThresh { width: 64px; }
+  :is(#nLabel, #zThresh)::-webkit-slider-thumb {
     -webkit-appearance: none; appearance: none;
     width: 14px; height: 14px; border-radius: 50%;
     background: #EFB98A; border: none;
   }
-  #nLabel:hover::-webkit-slider-thumb, #nLabel:active::-webkit-slider-thumb { background: var(--hot); }
-  #nLabel::-moz-range-track { height: 4px; border-radius: 2px; background: var(--line); }
-  #nLabel::-moz-range-thumb {
+  :is(#nLabel, #zThresh):hover::-webkit-slider-thumb,
+  :is(#nLabel, #zThresh):active::-webkit-slider-thumb { background: var(--hot); }
+  :is(#nLabel, #zThresh)::-moz-range-track { height: 4px; border-radius: 2px; background: var(--line); }
+  :is(#nLabel, #zThresh)::-moz-range-thumb {
     width: 14px; height: 14px; border-radius: 50%;
     background: #EFB98A; border: none;
   }
-  #nLabel:hover::-moz-range-thumb, #nLabel:active::-moz-range-thumb { background: var(--hot); }
-  #nLabelVal { font-size: 13px; color: var(--muted); min-width: 18px; }
+  :is(#nLabel, #zThresh):hover::-moz-range-thumb,
+  :is(#nLabel, #zThresh):active::-moz-range-thumb { background: var(--hot); }
+  #nLabelVal, #zVal { font-size: 13px; color: var(--muted); min-width: 18px; }
   .key i { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
 
   #stage { flex: 1; min-height: 0; overflow-y: auto; }
@@ -316,8 +319,10 @@
     <div class="ctl" id="ymodeCtl"><span>y axis</span><span class="seg">
       <button class="tog" data-g="ymode" data-v="pct">percentile</button>
       <button class="tog on" data-g="ymode" data-v="rank">raw rank</button></span>
-      <span class="seg" id="envCtl" hidden><button class="tog on" id="envBtn"
-        title="shade where to look: ranks in the top/bottom 1%, or coefs outside the middle 98% of guides at a similar rank">envelope</button></span>
+      <span class="seg" id="outCtl" hidden><button class="tog on" id="outBtn"
+        title="mark guides whose coef is extreme relative to guides at a similar rank">outliers</button></span>
+      <span id="zWrap" hidden><input type="range" id="zThresh" min="3" max="9" step="0.5" value="5"
+        title="how extreme vs rank peers (robust σ) before a guide is marked"><span id="zVal" class="mono">5σ</span></span>
     </div>
     <div class="ctl" id="basisCtl" hidden><span>rank by</span><span class="seg">
       <button class="tog on" data-g="basis" data-v="signed">value</button>
@@ -374,9 +379,11 @@
     <p class="fine">Genes offered in the picker are those with ≥ 15 guides significant at
     FDR &lt; 0.05, plus a curated set, plus a seeded random sample of the remaining
     genes as negative controls. All guides are always included; the guide pool opens
-    on <b>active</b>. The <b>envelope</b> shade marks where to look: ranks in the
-    top/bottom 1%, or coefficients outside the middle 98% of guides at a similar
-    rank. Coefficients are stored to 3 significant digits.</p>
+    on <b>active</b>. The <b>outliers</b> toggle marks guides whose coefficient is
+    extreme relative to guides placing the gene at a similar rank (robust σ, slider
+    sets how strict) — outliers within the internal ordering at each rank position,
+    beyond the plain top/bottom-N. Coefficients are stored to 3 significant
+    digits.</p>
   </div>
 </div>
 
@@ -386,9 +393,8 @@
   <button class="filebtn" id="clearPins" disabled>clear all pins</button>
   <button id="lassoBtn" hidden
     title="circle points to pin them — or hold Shift and drag"><svg width="16" height="16" viewBox="0 0 22 22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><ellipse cx="11" cy="8" rx="7.5" ry="5"/><path d="M5.5 11.5C4.5 14 5 16.5 8 18"/><circle cx="8" cy="18" r="1.3" fill="currentColor" stroke="none"/></svg></button>
-  <div class="ctl" id="labelCtl"><span>labels</span><span class="seg">
-    <button class="tog on" data-g="labels" data-v="top">top hits</button>
-    <button class="tog" data-g="labels" data-v="off">off</button></span>
+  <div class="ctl" id="labelCtl"><span class="seg"><button class="tog on" id="hitsBtn"
+      title="label the top/bottom guides by rank">top hits</button></span>
     <span id="nLabelWrap"><input type="range" id="nLabel" min="1" max="75" value="15"
       title="how many top/bottom guides to mark"><span id="nLabelVal" class="mono">15</span></span>
   </div>
@@ -423,7 +429,7 @@
     mode: 'generic',                  // 'generic' (dropped file) | 'catalog' (manifest gene)
     nameCol: null, valueCol: null, rankField: null,
     basis: 'signed', ymode: 'rank', ysrc: 'computed', pool: 'active', labels: 'top', nLabel: 15,
-    env: 'on',
+    out: 'on', outZ: 5,
     manifest: null, state: null, gene: null,
     guideMeta: {},                    // state -> {guide:[], target:[], tlower:[], active:[]}
     nRankUniverse: null,
@@ -740,64 +746,72 @@
             lower: names.map(s => s.toLowerCase()),
             tlower: target.map(s => s ? s.toLowerCase() : ''),
             nameToIdx: new Map(names.map((nm, p) => [nm, p])) };
-    computeEnvelope();
+    computeOutliers();
     computeHits();
     applySearch();
     updateStageHeight();
   }
 
-  // "where to look" envelope: quantile curves of coef computed in adaptive windows
-  // sliding along the RANK axis, over ALL guides (pool-independent). The shading
-  // marks the complement of the typical zone: guides whose rank is in the extreme
-  // tails, or whose coef falls outside the middle 98% of guides at a similar rank.
-  function computeEnvelope() {
-    const d = S.d; d.env = null;
+  // rank-local coef outliers: for every rank position, guides whose coef is extreme
+  // relative to guides at a similar rank — a robust z against a sliding median/MAD
+  // corridor along the rank axis, computed over ALL guides (pool-independent).
+  // MAD resists contamination by the hits themselves, so true regulators still
+  // stand out from their own stratum.
+  function computeOutliers() {
+    const d = S.d; d.outSet = null; d.z = null; d.outStat = null;
     if (!d.useFile) return;
-    const xs = [], rs = [];
-    for (const r of S.rows) {
+    const xs = [], rs = [], rows = [];
+    S.rows.forEach((r, i) => {
       const v = r[S.valueCol], rv = r[S.rankField];
       if (typeof v === 'number' && isFinite(v) &&
-          typeof rv === 'number' && isFinite(rv)) { xs.push(v); rs.push(rv); }
-    }
+          typeof rv === 'number' && isFinite(rv)) { xs.push(v); rs.push(rv); rows.push(i); }
+    });
     const n = xs.length;
     if (n < 40) return;
-    const nU = d.nU || (d3.max(rs) + 1);
-    const rTop = 0.01 * (nU - 1), rBot = 0.99 * (nU - 1);  // "very high / very low" strips
     const ord = d3.range(n).sort((a, b) => rs[a] - rs[b]);
-    const sr = ord.map(i => rs[i]), sxv = ord.map(i => xs[i]);
-    // adaptive windows: capped in rank-span (bandwidth) so sparse stretches stay
-    // local, with a count floor for stable quantiles and a cap for smoothness
-    const span = sr[Math.floor(0.995 * (n - 1))] - sr[Math.ceil(0.005 * (n - 1))];
-    const bw = (span || (sr[n - 1] - sr[0]) || 1) / 12;
-    const WMIN = Math.min(n, Math.max(40, Math.round(n / 200)));
-    const WMAX = Math.max(WMIN, Math.round(n / 16));
-    const iA = d3.bisectLeft(sr, rTop), iB = d3.bisectRight(sr, rBot) - 1;
-    if (iB - iA < 8) return;
-    const centers = new Set();
-    const NP = Math.min(140, iB - iA + 1);
-    for (let k = 0; k < NP; k++) centers.add(iA + Math.round(k * (iB - iA) / (NP - 1)));
-    const pts = [];
-    for (const c of [...centers].sort((a, b) => a - b)) {
-      const rc = sr[c];
-      let hL = c - d3.bisectLeft(sr, rc - bw);
-      let hR = d3.bisectRight(sr, rc + bw) - 1 - c;
-      const tot = hL + hR + 1;
-      if (tot > WMAX) {                       // shrink both sides proportionally
-        const f = (WMAX - 1) / (tot - 1);
-        hL = Math.floor(hL * f); hR = Math.floor(hR * f);
-      } else if (tot < WMIN) {                // expand in count-space, spill at edges
-        let need = WMIN - tot;
-        const addL = Math.min(c - hL, Math.ceil(need / 2));
-        hL += addL; need -= addL;
-        const addR = Math.min(n - 1 - (c + hR), need);
-        hR += addR; need -= addR;
-        hL += Math.min(c - hL, need);
-      }
-      const win = sxv.slice(c - hL, c + hR + 1).sort((a, b) => a - b);
-      const q = p => win[Math.min(win.length - 1, Math.round(p * (win.length - 1)))];
-      pts.push({ r: rc, lo: q(0.01), mid: q(0.5), hi: q(0.99) });
+    const sxv = ord.map(i => xs[i]);
+    const gStd = d3.deviation(xs) || 1e-9;
+    const W = Math.min(401, n);
+    const centers = [...new Set(d3.range(200).map(k => Math.round(k * (n - 1) / 199)))];
+    const med = [], sig = [];
+    for (const c of centers) {
+      const start = Math.max(0, Math.min(n - W, c - (W >> 1)));
+      const win = sxv.slice(start, start + W).sort((a, b) => a - b);
+      const mk = d3.quantileSorted(win, 0.5);
+      const dev = win.map(v => Math.abs(v - mk)).sort((a, b) => a - b);
+      med.push(mk);
+      sig.push(Math.max(1.4826 * d3.quantileSorted(dev, 0.5), 0.01 * gStd, 1e-9));
     }
-    d.env = { pts, rTop, rBot };
+    const zAll = new Float64Array(n);
+    let ci = 0;
+    for (let p = 0; p < n; p++) {
+      while (ci + 1 < centers.length && centers[ci + 1] < p) ci++;
+      const c0 = centers[ci], j1 = Math.min(ci + 1, centers.length - 1), c1 = centers[j1];
+      const f = c1 > c0 ? Math.min(1, Math.max(0, (p - c0) / (c1 - c0))) : 0;
+      zAll[p] = (sxv[p] - (med[ci] + f * (med[j1] - med[ci]))) /
+                (sig[ci] + f * (sig[j1] - sig[ci]));
+    }
+    const zByRow = new Map();
+    ord.forEach((oi, p) => zByRow.set(rows[oi], zAll[p]));
+    d.z = d.idx.map(ri => zByRow.get(ri));      // aligned with displayed points
+    d.zSorted = d3.range(n).map(p => [rows[ord[p]], Math.abs(zAll[p])])
+      .sort((a, b) => b[1] - a[1]);             // [row, |z|], most extreme first
+    applyOutThreshold();
+  }
+
+  // marks depend only on the slider threshold — cheap to re-derive on input
+  function applyOutThreshold() {
+    const d = S.d; if (!d) return;
+    d.outSet = null; d.outStat = null;
+    if (!d.zSorted) return;
+    const zs = d.zSorted, CAP = 400;
+    let total = 0;
+    while (total < zs.length && zs[total][1] >= S.outZ) total++;
+    const capRows = new Set();
+    for (let k = 0; k < Math.min(total, CAP); k++) capRows.add(zs[k][0]);
+    d.outSet = new Set();
+    d.idx.forEach((ri, k) => { if (capRows.has(ri)) d.outSet.add(k); });
+    d.outStat = { total, maxZ: zs.length ? zs[0][1] : 0 };
   }
 
   // top/bottom hits, notebook-style: by rank, most-up first; slider-adjustable
@@ -1092,10 +1106,13 @@
     const rankLine = d.useFile
       ? (S.ymode === 'pct' ? 'pct ' + fmtP(d.pct[i]) : 'rank ' + fmtI(d.rank[i]) + ' / ' + fmtI(d.nU))
       : (S.ymode === 'pct' ? 'pct ' + fmtP(d.pct[i]) : 'rank ' + fmtI(d.rank[i]));
+    const oz = d.z ? d.z[i] : null;
     tip.innerHTML = '<b>' + esc(d.names[i]) + '</b>' +
       (d.active[i] ? ' <span class="star">★</span>' : '') + '<br>' +
       esc(S.valueCol) + ' <b>' + fmt(d.x[i]) + '</b><br>' + rankLine +
-      (d.target[i] ? '<br>target ' + esc(d.target[i]) : '');
+      (d.target[i] ? '<br>target ' + esc(d.target[i]) : '') +
+      (d.outSet && d.outSet.has(i)
+        ? '<br>coef outlier: ' + (oz > 0 ? '+' : '−') + Math.abs(oz).toFixed(1) + 'σ vs rank peers' : '');
     const px = S.t.applyX(d.bx[i]), py = S.t.applyY(d.by[i]);
     tip.style.display = 'block';
     const tw = tip.offsetWidth;
@@ -1194,17 +1211,28 @@
       S[g] = v;
       document.querySelectorAll(`.tog[data-g="${g}"]`).forEach(x => x.classList.toggle('on', x.dataset.v === v));
       if (g === 'state') { switchState(v); return; }
-      if (g === 'labels') { if (S.d) { applySearch(); updateStageHeight(); drawAll(); } return; }
       syncCtls();
       if (S.d) { computeData(); resetView(); }
     }));
   }
   bindToggles(document);
 
-  $('envBtn').addEventListener('click', () => {
-    S.env = S.env === 'on' ? 'off' : 'on';
-    $('envBtn').classList.toggle('on', S.env === 'on');
+  $('outBtn').addEventListener('click', () => {
+    S.out = S.out === 'on' ? 'off' : 'on';
+    $('outBtn').classList.toggle('on', S.out === 'on');
+    syncCtls();
     if (S.d) drawAll();
+  });
+  $('hitsBtn').addEventListener('click', () => {
+    S.labels = S.labels === 'top' ? 'off' : 'top';
+    $('hitsBtn').classList.toggle('on', S.labels === 'top');
+    if (S.d) { applySearch(); updateStageHeight(); drawAll(); }
+  });
+  const zEl = $('zThresh');
+  zEl.addEventListener('input', () => {
+    S.outZ = +zEl.value;
+    $('zVal').textContent = zEl.value + 'σ';
+    if (S.d) { applyOutThreshold(); drawAll(); }
   });
 
   function syncCtls() {
@@ -1212,7 +1240,8 @@
     // i.e. a dropped file with no rank column; a rank column always wins.
     $('basisCtl').hidden = !!S.rankField;
     $('poolCtl').hidden = !(S.mode === 'catalog' || S.fields.includes('active'));
-    $('envCtl').hidden = !S.rankField;
+    $('outCtl').hidden = !S.rankField;
+    $('zWrap').hidden = !S.rankField || S.out !== 'on';
   }
 
   // ---------- drawing ----------
@@ -1272,47 +1301,6 @@
     mctx.save();
     mctx.beginPath(); mctx.rect(M.l, M.t, W - M.l - M.r, H - M.t - M.b); mctx.clip();
 
-    // envelope: shade everything OUTSIDE the typical zone (even-odd fill of the
-    // plot rect minus the typical polygon), so extreme-rank guides and coef
-    // outliers sit on tinted ground while the ordinary bulk stays on plain paper
-    if (S.env === 'on' && d.env) {
-      const P = d.env.pts;
-      const rY = S.ymode === 'pct'
-        ? (d.nU > 1 ? r => t.applyY(sy(r / (d.nU - 1))) : () => t.applyY(sy(0.5)))
-        : r => t.applyY(sy(r));
-      const xX = v => t.applyX(sx(v));
-      const corridor = () => {
-        mctx.moveTo(xX(P[0].lo), rY(P[0].r));
-        for (let k = 1; k < P.length; k++) mctx.lineTo(xX(P[k].lo), rY(P[k].r));
-        for (let k = P.length - 1; k >= 0; k--) mctx.lineTo(xX(P[k].hi), rY(P[k].r));
-        mctx.closePath();
-      };
-      mctx.beginPath();
-      mctx.rect(M.l, M.t, W - M.l - M.r, H - M.t - M.b);
-      corridor();
-      mctx.fillStyle = 'rgba(212,105,30,0.055)';
-      mctx.fill('evenodd');
-      // the corridor itself gets a bright fill + crisp edge so the typical/atypical
-      // boundary stays visible even when the corridor is a thin sliver (strong genes
-      // zoomed out) and the warm wash would otherwise read as uniform background
-      mctx.beginPath();
-      corridor();
-      mctx.fillStyle = 'rgba(255,255,255,0.5)';
-      mctx.fill();
-      mctx.strokeStyle = 'rgba(212,105,30,0.35)';
-      mctx.lineWidth = 1;
-      mctx.stroke();
-      // dashed running-median spine for orientation
-      mctx.strokeStyle = 'rgba(34,53,43,0.30)';
-      mctx.lineWidth = 1;
-      mctx.setLineDash([4, 4]);
-      mctx.beginPath();
-      mctx.moveTo(xX(P[0].mid), rY(P[0].r));
-      for (let k = 1; k < P.length; k++) mctx.lineTo(xX(P[k].mid), rY(P[k].r));
-      mctx.stroke();
-      mctx.setLineDash([]);
-    }
-
     const labeling = S.labels === 'top';
     const R = 2.6, TAU = Math.PI * 2;
 
@@ -1338,6 +1326,14 @@
       }
       mctx.fill();
     };
+    // rank-local coef outliers marked in place (hot), skipping points that already
+    // carry a stronger identity (self-target, or a shown top/bottom hit)
+    if (S.out === 'on' && d.outSet && d.outSet.size) {
+      const oIdx = [];
+      for (const k of d.outSet)
+        if (!d.self[k] && !(labeling && (d.topSet.has(k) || d.botSet.has(k)))) oIdx.push(k);
+      dotPass(oIdx, C.hot, 3.6);
+    }
     if (labeling) {
       dotPass(d.topIdx, COL.up, 3.8, i => d.self[i]);
       dotPass(d.botIdx, COL.down, 3.8, i => d.self[i]);
