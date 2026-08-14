@@ -763,17 +763,41 @@
     const n = xs.length;
     if (n < 40) return;
     const ord = d3.range(n).sort((a, b) => xs[a] - xs[b]);
-    const w = Math.min(n, Math.max(60, Math.round(n / 16)));
-    const NP = Math.min(140, n);
+    const sx2 = ord.map(i => xs[i]), sr = ord.map(i => rs[i]);
+    // adaptive window: capped in x-span (bandwidth) so the sparse coef tails stay
+    // local instead of dragging the dense centre along, with a count floor for
+    // stable quantiles and a count cap for smoothness in the dense middle
+    const span = sx2[Math.floor(0.995 * (n - 1))] - sx2[Math.ceil(0.005 * (n - 1))];
+    const bw = (span || (sx2[n - 1] - sx2[0]) || 1) / 12;
+    const WMIN = Math.min(n, Math.max(40, Math.round(n / 200)));
+    const WMAX = Math.max(WMIN, Math.round(n / 16));
+    // evaluation grid: equal-count positions over the central 99% of the coef axis —
+    // the band describes the typical bulk; the extreme tails are exceptional by
+    // definition (and too sparse for stable quantiles), so hits overshoot its ends
+    const i0 = Math.ceil(0.005 * (n - 1)), i1 = Math.floor(0.995 * (n - 1));
+    const centers = new Set();
+    const NP = Math.min(140, i1 - i0 + 1);
+    for (let k = 0; k < NP; k++) centers.add(i0 + Math.round(k * (i1 - i0) / (NP - 1)));
     const pts = [];
-    for (let k = 0; k < NP; k++) {
-      const c = Math.round(k * (n - 1) / (NP - 1));
-      const lo = Math.max(0, Math.min(n - w, c - (w >> 1)));
-      const win = [];
-      for (let m = lo; m < lo + w; m++) win.push(rs[ord[m]]);
-      win.sort((a, b) => a - b);
-      const q = p => win[Math.min(w - 1, Math.round(p * (w - 1)))];
-      pts.push({ x: xs[ord[c]], lo: q(0.05), mid: q(0.5), hi: q(0.95) });
+    for (const c of [...centers].sort((a, b) => a - b)) {
+      const xc = sx2[c];
+      let hL = c - d3.bisectLeft(sx2, xc - bw);
+      let hR = d3.bisectRight(sx2, xc + bw) - 1 - c;
+      const tot = hL + hR + 1;
+      if (tot > WMAX) {                       // shrink both sides proportionally
+        const f = (WMAX - 1) / (tot - 1);
+        hL = Math.floor(hL * f); hR = Math.floor(hR * f);
+      } else if (tot < WMIN) {                // expand in count-space, spill at edges
+        let need = WMIN - tot;
+        const addL = Math.min(c - hL, Math.ceil(need / 2));
+        hL += addL; need -= addL;
+        const addR = Math.min(n - 1 - (c + hR), need);
+        hR += addR; need -= addR;
+        hL += Math.min(c - hL, need);
+      }
+      const win = sr.slice(c - hL, c + hR + 1).sort((a, b) => a - b);
+      const q = p => win[Math.min(win.length - 1, Math.round(p * (win.length - 1)))];
+      pts.push({ x: xc, lo: q(0.05), mid: q(0.5), hi: q(0.95) });
     }
     d.env = pts;
   }
