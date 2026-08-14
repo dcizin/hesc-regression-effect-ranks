@@ -321,7 +321,7 @@
       <button class="tog on" data-g="ymode" data-v="rank">raw rank</button></span>
       <span class="seg" id="outCtl" hidden><button class="tog on" id="outBtn"
         title="mark guides whose coef is extreme relative to guides at a similar rank">outliers</button></span>
-      <span id="zWrap" hidden><input type="range" id="zThresh" min="3" max="9" step="0.5" value="5"
+      <span id="zWrap" hidden><input type="range" id="zThresh" min="1" max="9" step="0.5" value="5"
         title="how extreme vs rank peers (robust σ) before a guide is marked"><span id="zVal" class="mono">5σ</span></span>
     </div>
     <div class="ctl" id="basisCtl" hidden><span>rank by</span><span class="seg">
@@ -804,7 +804,7 @@
     const d = S.d; if (!d) return;
     d.outSet = null; d.outStat = null;
     if (!d.zSorted) return;
-    const zs = d.zSorted, CAP = 400;
+    const zs = d.zSorted, CAP = 2000;
     let total = 0;
     while (total < zs.length && zs[total][1] >= S.outZ) total++;
     const capRows = new Set();
