@@ -89,6 +89,12 @@
   }
   #pinMatches.show { visibility: visible; }
   #pinMatches:hover { background: var(--hot); color: var(--panel); }
+  #pinOuts {
+    font: 500 12.5px 'Bricolage Grotesque', sans-serif;
+    color: var(--hot); background: var(--hot-soft);
+    border-radius: 5px; padding: 2px 8px 3px;
+  }
+  #pinOuts:hover { background: var(--hot); color: var(--panel); }
   #search.has-pin { padding-right: 100px; }
 
   .combo { position: relative; }
@@ -324,6 +330,7 @@
         title="mark guides whose coef is extreme relative to guides at a similar rank">outliers</button></span>
       <span id="zWrap" hidden><input type="range" id="zThresh" min="1" max="9" step="0.5" value="7"
         title="how extreme vs rank peers (robust σ) before a guide is marked"><span id="zVal" class="mono">7.0σ</span></span>
+      <button id="pinOuts" hidden title="pin every currently marked outlier">pin these</button>
     </div>
     <div class="ctl" id="basisCtl" hidden><span>rank by</span><span class="seg">
       <button class="tog on" data-g="basis" data-v="signed">value</button>
@@ -1254,6 +1261,15 @@
     $('zVal').textContent = (+zEl.value).toFixed(1) + 'σ';
     if (S.d) { applyOutThreshold(); drawAll(); }
   });
+  $('pinOuts').addEventListener('click', () => {
+    const d = S.d;
+    if (!d || !d.outSet || !d.outSet.size) return;
+    const names = [...d.outSet].map(k => d.names[k]);
+    const allPinned = names.every(nm => S.pinned.has(nm));
+    for (const nm of names) allPinned ? S.pinned.delete(nm) : S.pinned.add(nm);
+    applySearch();
+    drawAll();
+  });
 
   function syncCtls() {
     // "rank by" (value vs |value|) only applies when we compute ranks ourselves,
@@ -1462,6 +1478,16 @@
     }
     syncPinLabels(seen, cmap);
     $('clearPins').disabled = S.pinned.size === 0;
+    // pin-outliers pill: mirrors the guide-search "pin these" — visible while marks
+    // exist (up to the lasso's 200-chip sanity cap), label flips when all are pinned
+    const os = S.out === 'on' ? d.outSet : null;
+    const showPO = !!(os && os.size && os.size <= 200);
+    $('pinOuts').hidden = !showPO;
+    if (showPO) {
+      let all = true;
+      for (const k of os) if (!S.pinned.has(d.names[k])) { all = false; break; }
+      $('pinOuts').textContent = all ? 'unpin these' : 'pin these';
+    }
   }
 
   // spread label y-positions in a band that hugs the points' own range (short leaders)
