@@ -163,6 +163,7 @@
   :is(#nLabel, #zThresh):hover::-moz-range-thumb,
   :is(#nLabel, #zThresh):active::-moz-range-thumb { background: var(--hot); }
   #nLabelVal, #zVal { font-size: 13px; color: var(--muted); min-width: 18px; }
+  #zVal { min-width: 34px; }   /* fits "8.5σ" — keeps the row from reflowing mid-drag */
   .key i { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
 
   #stage { flex: 1; min-height: 0; overflow-y: auto; }
@@ -322,7 +323,7 @@
       <span class="seg" id="outCtl" hidden><button class="tog on" id="outBtn"
         title="mark guides whose coef is extreme relative to guides at a similar rank">outliers</button></span>
       <span id="zWrap" hidden><input type="range" id="zThresh" min="1" max="9" step="0.5" value="5"
-        title="how extreme vs rank peers (robust σ) before a guide is marked"><span id="zVal" class="mono">5σ</span></span>
+        title="how extreme vs rank peers (robust σ) before a guide is marked"><span id="zVal" class="mono">5.0σ</span></span>
     </div>
     <div class="ctl" id="basisCtl" hidden><span>rank by</span><span class="seg">
       <button class="tog on" data-g="basis" data-v="signed">value</button>
@@ -1231,7 +1232,7 @@
   const zEl = $('zThresh');
   zEl.addEventListener('input', () => {
     S.outZ = +zEl.value;
-    $('zVal').textContent = zEl.value + 'σ';
+    $('zVal').textContent = (+zEl.value).toFixed(1) + 'σ';
     if (S.d) { applyOutThreshold(); drawAll(); }
   });
 
