@@ -322,8 +322,8 @@
       <button class="tog on" data-g="ymode" data-v="rank">raw rank</button></span>
       <span class="seg" id="outCtl" hidden><button class="tog on" id="outBtn"
         title="mark guides whose coef is extreme relative to guides at a similar rank">outliers</button></span>
-      <span id="zWrap" hidden><input type="range" id="zThresh" min="1" max="9" step="0.5" value="5"
-        title="how extreme vs rank peers (robust σ) before a guide is marked"><span id="zVal" class="mono">5.0σ</span></span>
+      <span id="zWrap" hidden><input type="range" id="zThresh" min="1" max="9" step="0.5" value="7"
+        title="how extreme vs rank peers (robust σ) before a guide is marked"><span id="zVal" class="mono">7.0σ</span></span>
     </div>
     <div class="ctl" id="basisCtl" hidden><span>rank by</span><span class="seg">
       <button class="tog on" data-g="basis" data-v="signed">value</button>
@@ -383,8 +383,15 @@
     on <b>active</b>. The <b>outliers</b> toggle marks guides whose coefficient is
     extreme relative to guides placing the gene at a similar rank (robust σ, slider
     sets how strict) — outliers within the internal ordering at each rank position,
-    beyond the plain top/bottom-N. Coefficients are stored to 3 significant
-    digits.</p>
+    beyond the plain top/bottom-N. Each guide's coefficient is first standardised
+    by that guide's own background median/MAD (the guides.csv center/scale columns),
+    so marks reflect this gene, not a guide's overall profile width; background
+    genes still legitimately show ~10–25 marks at the default 7σ. The
+    <b>tail lift</b> line under the title is mean |coef| of the guides ranking the
+    gene in their extreme 1% over the 5–10% shoulder bands, compared against the
+    800 random background genes; ~23% of background genes read "elevated" by
+    chance, and the second decimal is below the score's reliability, so read the
+    band, not a ranking. Coefficients are stored to 3 significant digits.</p>
   </div>
 </div>
 
@@ -430,7 +437,7 @@
     mode: 'generic',                  // 'generic' (dropped file) | 'catalog' (manifest gene)
     nameCol: null, valueCol: null, rankField: null,
     basis: 'signed', ymode: 'rank', ysrc: 'computed', pool: 'active', labels: 'top', nLabel: 15,
-    out: 'on', outZ: 5,
+    out: 'on', outZ: 7,
     manifest: null, state: null, gene: null,
     guideMeta: {},                    // state -> {guide:[], target:[], tlower:[], active:[]}
     nRankUniverse: null,
@@ -581,14 +588,16 @@
     return new Promise(resolve => {
       Papa.parse(`data/${encodeURIComponent(state)}/guides.csv`, { ...parseOpts, download: true,
         complete: res => {
-          const guide = [], target = [], tlower = [], active = [];
+          const guide = [], target = [], tlower = [], active = [], center = [], scale = [];
           for (const r of res.data) {
             guide.push(String(r.guide));
             const tg = r.target == null ? '' : String(r.target);
             target.push(tg); tlower.push(tg.toLowerCase());
             active.push(r.active ? 1 : 0);
+            center.push(typeof r.center === 'number' && isFinite(r.center) ? r.center : null);
+            scale.push(typeof r.scale === 'number' && isFinite(r.scale) ? r.scale : null);
           }
-          resolve(S.guideMeta[state] = { guide, target, tlower, active });
+          resolve(S.guideMeta[state] = { guide, target, tlower, active, center, scale });
         },
         error: () => resolve(null)
       });
@@ -747,7 +756,9 @@
             lower: names.map(s => s.toLowerCase()),
             tlower: target.map(s => s ? s.toLowerCase() : ''),
             nameToIdx: new Map(names.map((nm, p) => [nm, p])) };
+    M.t = S.mode === 'catalog' ? 74 : 54;   // room for the tail-lift line under the title
     computeOutliers();
+    computeLift();
     computeHits();
     applySearch();
     updateStageHeight();
@@ -756,22 +767,32 @@
   // rank-local coef outliers: for every rank position, guides whose coef is extreme
   // relative to guides at a similar rank — a robust z against a sliding median/MAD
   // corridor along the rank axis, computed over ALL guides (pool-independent).
-  // MAD resists contamination by the hits themselves, so true regulators still
-  // stand out from their own stratum.
+  // Coefs are first standardised per guide by that guide's background median/MAD
+  // (center/scale columns of guides.csv): without this, guide-level scale/offset
+  // heterogeneity (~10x across the library) makes the same ~200 wide-profile
+  // guides light up on every gene. Degenerate guides (the all-zero control) are
+  // dropped from the pass. MAD resists contamination by the hits themselves.
   function computeOutliers() {
     const d = S.d; d.outSet = null; d.z = null; d.outStat = null;
     if (!d.useFile) return;
+    const meta = S.mode === 'catalog' ? S.guideMeta[S.state] : null;
+    const std = meta && meta.scale && meta.scale.some(s => s != null);
     const xs = [], rs = [], rows = [];
     S.rows.forEach((r, i) => {
       const v = r[S.valueCol], rv = r[S.rankField];
-      if (typeof v === 'number' && isFinite(v) &&
-          typeof rv === 'number' && isFinite(rv)) { xs.push(v); rs.push(rv); rows.push(i); }
+      if (typeof v !== 'number' || !isFinite(v) ||
+          typeof rv !== 'number' || !isFinite(rv)) return;
+      let val = v;
+      if (std) {
+        if (meta.scale[i] == null || meta.scale[i] <= 1e-6) return;
+        val = (v - meta.center[i]) / meta.scale[i];
+      }
+      xs.push(val); rs.push(rv); rows.push(i);
     });
     const n = xs.length;
     if (n < 40) return;
     const ord = d3.range(n).sort((a, b) => rs[a] - rs[b]);
     const sxv = ord.map(i => xs[i]);
-    const gStd = d3.deviation(xs) || 1e-9;
     const W = Math.min(401, n);
     const centers = [...new Set(d3.range(200).map(k => Math.round(k * (n - 1) / 199)))];
     const med = [], sig = [];
@@ -781,7 +802,7 @@
       const mk = d3.quantileSorted(win, 0.5);
       const dev = win.map(v => Math.abs(v - mk)).sort((a, b) => a - b);
       med.push(mk);
-      sig.push(Math.max(1.4826 * d3.quantileSorted(dev, 0.5), 0.01 * gStd, 1e-9));
+      sig.push(Math.max(1.4826 * d3.quantileSorted(dev, 0.5), 1e-9));
     }
     const zAll = new Float64Array(n);
     let ci = 0;
@@ -795,24 +816,72 @@
     const zByRow = new Map();
     ord.forEach((oi, p) => zByRow.set(rows[oi], zAll[p]));
     d.z = d.idx.map(ri => zByRow.get(ri));      // aligned with displayed points
+    d.rowToDisp = new Map(d.idx.map((ri, k) => [ri, k]));
     d.zSorted = d3.range(n).map(p => [rows[ord[p]], Math.abs(zAll[p])])
       .sort((a, b) => b[1] - a[1]);             // [row, |z|], most extreme first
     applyOutThreshold();
   }
 
-  // marks depend only on the slider threshold — cheap to re-derive on input
+  // marks depend only on the slider threshold — cheap to re-derive on input;
+  // the cap applies to the DISPLAYED pool (top-N by |z| among visible points),
+  // so the default active view is never starved by all-pool flags
   function applyOutThreshold() {
     const d = S.d; if (!d) return;
     d.outSet = null; d.outStat = null;
     if (!d.zSorted) return;
-    const zs = d.zSorted, CAP = 2000;
+    const zs = d.zSorted, CAP = 500;
     let total = 0;
     while (total < zs.length && zs[total][1] >= S.outZ) total++;
-    const capRows = new Set();
-    for (let k = 0; k < Math.min(total, CAP); k++) capRows.add(zs[k][0]);
     d.outSet = new Set();
-    d.idx.forEach((ri, k) => { if (capRows.has(ri)) d.outSet.add(k); });
+    for (let k = 0; k < total && d.outSet.size < CAP; k++) {
+      const p = d.rowToDisp.get(zs[k][0]);
+      if (p !== undefined) d.outSet.add(p);
+    }
     d.outStat = { total, maxZ: zs.length ? zs[0][1] : 0 };
+  }
+
+  // tail lift: per-gene signal score = mean |coef| of the guides ranking this gene
+  // in their extreme 1%, over mean |coef| of the 5-10% shoulder bands. Chosen over
+  // a fitted-curve R^2, which is ~0.93 for EVERY gene (rank is monotone in coef by
+  // construction) and separates hits from background WORSE than chance. AUROC vs
+  // the 800 random background genes: 0.88 (DE) / 0.92 (ES). Pool-independent
+  // (computed over all rows); split-half reliability ~0.6, so the band matters
+  // more than the second decimal — never rank genes by L.
+  const LIFT_BG = [[1.639,1],[1.657,2],[1.689,5],[1.721,10],[1.758,20],[1.789,30],
+                   [1.816,40],[1.845,50],[1.875,60],[1.906,70],[1.953,80],[2.031,90],
+                   [2.105,95],[2.184,98],[2.244,99]];
+  function liftPct(L) {
+    if (L <= LIFT_BG[0][0]) return 1;
+    if (L >= LIFT_BG[LIFT_BG.length - 1][0]) return 99;
+    for (let i = 1; i < LIFT_BG.length; i++)
+      if (L < LIFT_BG[i][0]) {
+        const [x0, y0] = LIFT_BG[i - 1], [x1, y1] = LIFT_BG[i];
+        return y0 + (y1 - y0) * (L - x0) / (x1 - x0);
+      }
+    return 99;
+  }
+  const liftBand = L => L < 1.90 ? 'typical' : L < 2.05 ? 'elevated'
+                       : L < 2.20 ? 'strong' : 'very strong';
+  function computeLift() {
+    const d = S.d; d.lift = null;
+    const nU = S.nRankUniverse;             // manifest value, never the pool-filtered fallback
+    if (S.mode !== 'catalog' || !nU || !d.useFile) return;
+    let tipSum = 0, tipN = 0, shSum = 0, shN = 0;
+    const t1 = 0.01 * nU, t99 = 0.99 * nU,
+          s5 = 0.05 * nU, s10 = 0.10 * nU, s90 = 0.90 * nU, s95 = 0.95 * nU;
+    for (const r of S.rows) {
+      const v = r[S.valueCol], k = r[S.rankField];
+      if (typeof v !== 'number' || !isFinite(v) ||
+          typeof k !== 'number' || !isFinite(k)) continue;
+      const a = Math.abs(v);
+      if (k < t1 || k >= t99) { tipSum += a; tipN++; }
+      else if ((k >= s5 && k < s10) || (k >= s90 && k < s95)) { shSum += a; shN++; }
+    }
+    if (tipN < 10 || shN < 20) return;
+    const sh = shSum / shN;
+    if (!(sh > 0)) return;
+    const L = (tipSum / tipN) / sh;
+    d.lift = { L, pct: liftPct(L), band: liftBand(L) };
   }
 
   // top/bottom hits, notebook-style: by rank, most-up first; slider-adjustable
@@ -1287,6 +1356,12 @@
     if (ptitle) {
       mctx.fillStyle = C.ink; mctx.font = '600 20px "Bricolage Grotesque", sans-serif';
       mctx.fillText(ptitle, M.l + (W - M.l - M.r)/2, 34);
+      if (d.lift) {
+        const p = d.lift.pct <= 1 ? '<1' : d.lift.pct >= 99 ? '>99' : Math.round(d.lift.pct);
+        mctx.fillStyle = C.muted; mctx.font = '500 13.5px "Bricolage Grotesque", sans-serif';
+        mctx.fillText(`tail lift ${d.lift.L.toFixed(2)}× (background 1.85×) — ` +
+          `${d.lift.band}: above ${p}% of background genes`, M.l + (W - M.l - M.r)/2, 56);
+      }
       mctx.fillStyle = C.ink; mctx.font = '500 18px "Bricolage Grotesque", sans-serif';
     }
     mctx.save();
